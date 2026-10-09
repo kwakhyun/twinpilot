@@ -64,7 +64,7 @@ curl … -F dryRun=false -F mode=UPSERT -F refreshRisk=true
   마지막 레이어에서만 켜거나, 끝난 뒤 분석 Job `REFRESH_RISK`를 한 번 실행한다.
 - 권장 순서: REGION → ROAD → FIRE_STATION·HYDRANT·AED → BUILDING(마지막에 위험도 재계산).
 - 적재는 감사 로그(`DATA_IMPORT`)에 남고, 끝나면 모든 레플리카의 분석 캐시가 비워진다.
-- 15만 피처 기준 검증 12.2초(05 문서). 병합은 한 트랜잭션에서 최대 30분까지 허용한다.
+- 15만 피처 기준 검증 7.2초(05 문서). 병합은 한 트랜잭션에서 최대 30분까지 허용한다.
 
 ## 5. 합성 데이터 끄기
 

@@ -86,7 +86,12 @@ sequenceDiagram
 ### 2.3 감사 로그
 
 데이터 가져오기, 계획 시설 배치·삭제·일괄 삭제, 3D 모델 업로드·배치·삭제, Job 제출·취소를 `audit_log`에 남긴다
-(행위자 subject·사용자명·역할, 대상, 세부 JSON, 시각). ADMIN만 `/api/v1/admin/audit`로 조회한다.
+(행위자 subject·사용자명, 대상, 세부 JSON, 클라이언트 IP, trace ID, 시각). ADMIN만 `/api/v1/admin/audit`로 조회한다.
+
+- DB 변경과 감사 기록은 한 트랜잭션으로 쓴다. 감사 기록이 실패하면 변경도 롤백되므로 "변경은 됐는데 기록이 없는" 상태가 생기지 않는다.
+- 파일 저장소가 끼어 트랜잭션으로 묶을 수 없는 모델 업로드·삭제는 기록이 실패해도 작업을 막지 않고, 감사 내용 전체를 구조화 로그로
+  남긴 뒤 실패 수(`twinpilot_audit_write_failures_total`)를 센다(경보 `AuditWriteFailures`).
+- 부하 시험에서 커넥션 풀이 고갈됐을 때 감사 기록만 빠지는 경우를 발견해 이 구조로 바꿨다(05 문서 §5).
 
 ## 3. 비동기 처리와 다중 레플리카
 
@@ -147,14 +152,14 @@ sequenceDiagram
 - 출처(`source`)별로 관리하므로 REPLACE는 같은 출처의 기존 행만 바꾼다.
 - 병합은 한 트랜잭션에서 `SET LOCAL statement_timeout = '30min'`으로 실행한다(요청 처리 쿼리는 30초 제한).
 - 비정상 종료로 남은 스테이징 행은 매시간 정리한다(6시간 경과).
-- 15만 피처를 12.2초에 검증했다. 처리 중 워커를 강제 종료해도 다른 레플리카가 이어받아 끝냈다(05 문서).
+- 15만 피처를 7.2초에 검증했다. 처리 중 워커를 강제 종료해도 다른 레플리카가 이어받아 끝냈다(05 문서).
 
 ## 5. 성능
 
 | 항목 | 적용 | 근거·측정(05 문서) |
 |---|---|---|
-| 요청 처리 | 가상 스레드, 독립 질의 병렬 실행(건물 상세 4, 통계 8, 검색 2) | 건물 상세 p95 6ms(부하 중) |
-| 분석 캐시 | 통계·커버리지·출동 시간 결과를 조건별로 재사용(TTL 15·60초, 동시 요청 합치기, 항목 수 상한). 데이터가 바뀌면 NOTIFY로 모든 레플리카에서 비운다 | 초당 200건 단계 부하에서 p95 776ms → 25ms, PostGIS CPU 317% → 51% |
+| 요청 처리 | 가상 스레드, 독립 질의 병렬 실행(건물 상세 4, 통계 8, 검색 2) | 건물 상세 p95 5.8ms(초당 200건 부하 중) |
+| 분석 캐시 | 통계·커버리지·출동 시간 결과를 조건별로 재사용(TTL 15·60초, 동시 요청 합치기, 항목 수 상한). 데이터가 바뀌면 NOTIFY로 모든 레플리카에서 비운다 | 초당 200건 단계 부하에서 p95 776ms → 20ms, PostGIS CPU 317% → 72%. 조건이 매번 다르면 초당 60건 부근이 한계(단일 호스트) |
 | 과부하 | DB 커넥션 대기 초과는 500이 아니라 503 + `Retry-After` | 캐시 도입 전 통계 엔드포인트가 커넥션 풀을 고갈시켜 500을 냈다 |
 | GeoJSON | PostGIS가 직접 생성, gzip, weak ETag(304) | 건물 레이어 913KB → 119KB |
 | PostGIS | 5186 생성 컬럼 + GIST, KNN 후 정확 거리, `SET jit = off`, 추천 후보를 도로 분할점으로 | 추천 6.8초 → 0.27초 |
@@ -180,8 +185,8 @@ sequenceDiagram
 - **추적**: OpenTelemetry(OTLP). 코파일럿 질의 하나가 ai-agent → mcp-server → twin-api를 거치는 하나의 트레이스(46 span)로 이어진다.
 - **메트릭**: twin-api `/actuator/prometheus`(관리 포트 8081, 외부 비노출), mcp-server·ai-agent `/metrics`, Keycloak `/auth/metrics`(9000).
   업무 메트릭: Job 대기·완료·실패, 센서 수집 수락·거절, 에이전트 대화 결과·LLM 토큰·fallback, MCP 도구 호출 결과.
-- **경보**(`infra/observability/alerts.yml` 9개 + Kubernetes 전용 5개): 5xx 비율, p95 지연, Job 적체·실패, 센서 수집 중단,
-  LLM fallback 증가, 에이전트·MCP 오류, DB 커넥션 대기, 대상 다운, 재시작 반복, 백업 누락·실패, DB 볼륨 여유 부족.
+- **경보**(`infra/observability/alerts.yml` 10개 + Kubernetes 전용 5개): 5xx 비율, p95 지연, Job 적체·실패, 센서 수집 중단,
+  LLM fallback 증가, 에이전트·MCP 오류, DB 커넥션 대기, 감사 기록 실패, 대상 다운, 재시작 반복, 백업 누락·실패, DB 볼륨 여유 부족.
   대응 절차는 [runbooks/alerts.md](runbooks/alerts.md).
 - **대시보드**: Grafana `TwinPilot 운영 개요`(14 패널). compose는 `--profile observability`, Kubernetes는 kube-prometheus-stack 사이드카가 읽는다.
 
@@ -193,7 +198,7 @@ sequenceDiagram
 | 웹 | 엄격한 CSP(`script-src 'self' 'wasm-unsafe-eval'`: 인라인 스크립트·JS eval 금지. Knockout eval을 쓰는 Cesium Viewer 대신 CesiumWidget), HSTS(HTTPS일 때), `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `frame-ancestors 'none'`. Keycloak 로그인 화면은 별도 CSP |
 | 입력 | SQL 바인딩 파라미터만, 정렬·유형 허용 목록, glTF 구조 검증, 업로드 크기 제한, GeoJSON 좌표 범위·도형 검증 |
 | AI | MCP 도구는 모두 읽기 전용(쓰기는 사용자 권한으로 twin-api가 판단), 도구 인자 스키마 검증, 도구 호출 한도, 시스템 프롬프트 비공개(평가 사례) |
-| 컨테이너 | 비루트, 읽기 전용 루트 파일시스템(Keycloak 최적화 이미지 포함), `drop ALL`, 권한 상승 금지, seccomp RuntimeDefault. 런타임 이미지에서 pip·불필요 바이너리 제거 |
+| 컨테이너 | 비루트, 읽기 전용 루트 파일시스템(Keycloak 최적화 이미지·PostGIS 포함), `drop ALL`, 권한 상승 금지, seccomp RuntimeDefault. 런타임 이미지에서 pip·gosu 등 불필요 바이너리 제거. 수정 가능한 HIGH·CRITICAL: twin-api·mcp-server·ai-agent·keycloak 0, PostGIS·frontend는 남은 항목이 모두 Alpine 패키지라 CI의 `apk upgrade`로 해소(이 환경에서는 저장소 차단으로 미확인) |
 | 클러스터 | Pod Security `restricted` 강제(PostGIS 포함 모든 워크로드), 네임스페이스 기본 차단 NetworkPolicy, ServiceAccount 토큰 미마운트 |
 | 공급망 | 해시 고정 Python 의존성(`requirements.lock`), npm `package-lock.json`, CI에서 Trivy(이미지)·pip-audit·npm audit, Dependabot |
 | 비밀 | Secret으로만 주입. `secrets.env`·`terraform.tfvars`는 버전 관리 제외. 교체 절차는 [runbooks/secrets-rotation.md](runbooks/secrets-rotation.md) |
@@ -203,13 +208,13 @@ sequenceDiagram
 ```
 infra/k8s/
 ├── base/                      Namespace(PSA restricted), SA, ConfigMap, NetworkPolicy
-│   ├── postgis.yaml           StatefulSet(비루트·읽기 전용 루트, max_connections 250)
+│   ├── postgis.yaml           StatefulSet(자체 이미지 infra/postgis: Alpine·gosu 제거, uid 70, 읽기 전용 루트, max_connections 250)
 │   ├── postgres-bootstrap.yaml  keycloak·agent DB/사용자 멱등 생성 Job(Argo CD Sync 훅)
 │   ├── keycloak.yaml          클러스터링(jdbc-ping·파드 IP 바인드), 읽기 전용 루트, realm 엔드포인트 프로브
 │   └── twin-api·mcp-server·ai-agent·frontend.yaml
 ├── components/
 │   ├── backup/                CronJob: pg_dump(3개 DB) → Object Storage, 보관 기간 정리, 복구 Job·스크립트
-│   └── monitoring/            ServiceMonitor 4, PrometheusRule(14), Grafana 대시보드 ConfigMap(generate.py로 생성)
+│   └── monitoring/            ServiceMonitor 4, PrometheusRule(15), Grafana 대시보드 ConfigMap(generate.py로 생성)
 └── overlays/
     ├── local/                 kind 등: 로컬 시크릿, 데모 사용자, ai-agent 2개
     └── ncp/                   NKS: NCR 이미지, ALB Ingress(NodePort), nks-block-storage, Object Storage,

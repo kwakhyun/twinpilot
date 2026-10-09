@@ -96,6 +96,13 @@ spec:
             - name: TWINPILOT_WEB_URL
               valueFrom:
                 configMapKeyRef: {name: twinpilot-config, key: TWINPILOT_WEB_URL}
+            # 개발 서버(Vite 5173·프리뷰 4173) 리디렉트 주소 자리에도 서비스 주소를 넣어 운영 realm에 localhost가 남지 않게 한다.
+            - name: TWINPILOT_DEV_WEB_URL
+              valueFrom:
+                configMapKeyRef: {name: twinpilot-config, key: TWINPILOT_WEB_URL}
+            - name: TWINPILOT_PREVIEW_WEB_URL
+              valueFrom:
+                configMapKeyRef: {name: twinpilot-config, key: TWINPILOT_WEB_URL}
             - name: AGENT_CLIENT_SECRET
               valueFrom:
                 secretKeyRef: {name: twinpilot-secrets, key: AGENT_CLIENT_SECRET}
