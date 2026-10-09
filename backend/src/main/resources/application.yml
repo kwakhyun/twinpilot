@@ -113,7 +113,7 @@ twinpilot:
     wide-road-kmh: 40
     medium-road-kmh: 30
     narrow-road-kmh: 20
-    access-kmh: 10
+    access-kmh: 20              # 도로망 밖 구간(소방서~가까운 도로) 속도
     turnout-sec: 60
   sensors:
     simulate: ${SENSOR_SIMULATE:true}

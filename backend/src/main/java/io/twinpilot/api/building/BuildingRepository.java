@@ -91,14 +91,20 @@ public class BuildingRepository {
                 .list();
     }
 
-    public record BuildingRow(BuildingSummary summary, int basementFloors, String footprint) {
+    /** responseS·responseStation은 도로망 출동 시간(REFRESH_RISK가 계산). 없으면 null. */
+    public record BuildingRow(BuildingSummary summary, int basementFloors, String footprint, Double responseS,
+                              String responseStation, Double roadAccessM) {
     }
 
     public Optional<BuildingRow> findById(int id) {
-        return jdbc.sql("SELECT " + SUMMARY_COLUMNS + ", ST_AsGeoJSON(b.geom, 7) AS footprint"
-                        + " FROM building b LEFT JOIN region r ON r.id = b.region_id WHERE b.id = :id")
+        return jdbc.sql("SELECT " + SUMMARY_COLUMNS + ", ST_AsGeoJSON(b.geom, 7) AS footprint,"
+                        + " b.response_s, st.name AS response_station, b.road_access_m"
+                        + " FROM building b LEFT JOIN region r ON r.id = b.region_id"
+                        + " LEFT JOIN facility st ON st.id = b.response_station_id WHERE b.id = :id")
                 .param("id", id)
-                .query((rs, i) -> new BuildingRow(summary(rs), rs.getInt("basement_floors"), rs.getString("footprint")))
+                .query((rs, i) -> new BuildingRow(summary(rs), rs.getInt("basement_floors"), rs.getString("footprint"),
+                        (Double) rs.getObject("response_s"), rs.getString("response_station"),
+                        (Double) rs.getObject("road_access_m")))
                 .optional();
     }
 

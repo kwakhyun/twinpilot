@@ -28,8 +28,13 @@ public final class BuildingDtos {
     public record LadderAnalysis(double ladderReachM, double floorHeightM, int reachableFloor, int floorsBeyondReach) {
     }
 
+    /**
+     * 출동 여건. estimatedMinutes는 도로망 최단경로 시간(있으면) 또는 직선거리 근사.
+     * straightLineMinutes는 비교용 직선 근사, roadAccessM은 가장 가까운 도로까지 거리(소방차 접근성).
+     */
     public record ResponseEstimate(String stationName, double straightDistanceM, double estimatedMinutes,
-                                   double targetMinutes, boolean withinTarget, String method) {
+                                   double targetMinutes, boolean withinTarget, String method,
+                                   double straightLineMinutes, Double roadAccessM) {
     }
 
     public record BuildingDetail(BuildingSummary building, int basementFloors, @JsonRawValue String footprint,

@@ -1,7 +1,5 @@
 package io.twinpilot.api.analysis;
 
-import java.util.Map;
-
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -58,7 +56,7 @@ public class AnalysisJobHandlers {
 
             @Override
             public Object run(JsonNode p, Actor actor, Progress progress) {
-                return Map.of("updatedBuildings", risk.refresh(progress));
+                return risk.refreshAll(progress);
             }
         };
     }

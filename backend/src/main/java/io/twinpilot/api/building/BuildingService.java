@@ -67,10 +67,18 @@ public class BuildingService {
 
         ResponseEstimate response = join(stations).stream().findFirst()
                 .map(s -> {
-                    double minutes = Math.round(standards.responseMinutes(s.distanceM()) * 10) / 10.0;
-                    return new ResponseEstimate(s.name(), s.distanceM(), minutes, standards.responseTargetMin(),
-                            minutes <= standards.responseTargetMin(),
-                            "직선거리×%.1f÷%.0fkm/h 근사".formatted(standards.detourFactor(), standards.travelSpeedKmh()));
+                    double straight = Math.round(standards.responseMinutes(s.distanceM()) * 10) / 10.0;
+                    if (row.responseS() != null) {
+                        double minutes = Math.round(row.responseS() / 6.0) / 10.0;
+                        return new ResponseEstimate(row.responseStation() != null ? row.responseStation() : s.name(),
+                                s.distanceM(), minutes, standards.responseTargetMin(),
+                                minutes <= standards.responseTargetMin(), "도로망 최단경로(출동 준비 시간 포함)",
+                                straight, row.roadAccessM());
+                    }
+                    return new ResponseEstimate(s.name(), s.distanceM(), straight, standards.responseTargetMin(),
+                            straight <= standards.responseTargetMin(),
+                            "직선거리×%.1f÷%.0fkm/h 근사".formatted(standards.detourFactor(), standards.travelSpeedKmh()),
+                            straight, row.roadAccessM());
                 })
                 .orElse(null);
 

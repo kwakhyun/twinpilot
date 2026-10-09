@@ -19,6 +19,8 @@ import org.springframework.stereotype.Component;
 
 import io.twinpilot.api.analysis.RiskService;
 import io.twinpilot.api.config.TwinPilotProperties;
+import io.twinpilot.api.job.Progress;
+import io.twinpilot.api.network.RoadNetworkService;
 
 /**
  * 비어 있는 DB에 합성(가상) 데모 데이터를 적재하고 화재위험도를 계산한다.
@@ -34,11 +36,14 @@ public class DemoDataSeeder implements ApplicationRunner {
     private final DataSource dataSource;
     private final TwinPilotProperties props;
     private final RiskService risk;
+    private final RoadNetworkService network;
 
-    public DemoDataSeeder(DataSource dataSource, TwinPilotProperties props, RiskService risk) {
+    public DemoDataSeeder(DataSource dataSource, TwinPilotProperties props, RiskService risk,
+                          RoadNetworkService network) {
         this.dataSource = dataSource;
         this.props = props;
         this.risk = risk;
+        this.network = network;
     }
 
     @Override
@@ -69,6 +74,8 @@ public class DemoDataSeeder implements ApplicationRunner {
         }
         long started = System.currentTimeMillis();
         new ResourceDatabasePopulator(new ClassPathResource("db/seed/seed.sql")).execute(locked);
+        var times = network.computeResponseTimes(Progress.NONE);
+        log.info("도로망 출동 시간: 건물 {}동, 도달 불가 {}동", times.buildings(), times.unreachable());
         int updated = risk.refreshIn(client);
         log.info("합성 데모 데이터 적재 완료: 건물 {}동, {}ms", updated, System.currentTimeMillis() - started);
     }

@@ -72,7 +72,8 @@ public class SecurityConfig {
                         // Job 유형별 세부 역할(위험도 재계산·적재는 ADMIN)은 JobService에서 확인한다.
                         .requestMatchers(HttpMethod.POST, "/api/v1/analysis/jobs").hasRole(Role.ANALYST.name())
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/analysis/jobs/**").hasRole(Role.ANALYST.name())
-                        .requestMatchers(HttpMethod.POST, "/api/v1/analysis/coverage").hasRole(Role.VIEWER.name())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/analysis/coverage", "/api/v1/analysis/response")
+                        .hasRole(Role.VIEWER.name())
                         .requestMatchers(HttpMethod.GET, "/api/v1/**").hasRole(Role.VIEWER.name())
                         .anyRequest().denyAll());
 

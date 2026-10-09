@@ -6,6 +6,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import io.twinpilot.api.config.TwinPilotProperties;
 import io.twinpilot.api.job.Progress;
+import io.twinpilot.api.network.RoadNetworkService;
 
 /**
  * 건물 화재위험도 일괄 재계산.
@@ -20,21 +21,33 @@ public class RiskService {
     private final JdbcClient jdbc;
     private final TransactionTemplate tx;
     private final TwinPilotProperties.Standards standards;
+    private final RoadNetworkService network;
 
-    public RiskService(JdbcClient jdbc, TransactionTemplate tx, TwinPilotProperties props) {
+    public RiskService(JdbcClient jdbc, TransactionTemplate tx, TwinPilotProperties props, RoadNetworkService network) {
         this.jdbc = jdbc;
         this.tx = tx;
         this.standards = props.standards();
+        this.network = network;
+    }
+
+    public record RefreshResult(int updatedBuildings, RoadNetworkService.ComputeResult network) {
+    }
+
+    /** 도로망 출동 시간 → 위험도 순서로 다시 계산한다. */
+    public RefreshResult refreshAll(Progress progress) {
+        var times = network.computeResponseTimes(progress);
+        int updated = refresh(progress);
+        return new RefreshResult(updated, times);
     }
 
     public int refresh(Progress progress) {
-        progress.report(10, "화재위험도 재계산");
+        progress.report(85, "화재위험도 재계산");
         Integer updated = tx.execute(status -> {
             jdbc.sql("SET LOCAL statement_timeout = '15min'").update();
             jdbc.sql("SELECT pg_advisory_xact_lock(:key)").param("key", RISK_LOCK).query(Object.class).optional();
             return refreshIn(jdbc);
         });
-        progress.report(95, "건물 %d동 갱신".formatted(updated));
+        progress.report(98, "건물 %d동 갱신".formatted(updated));
         return updated == null ? 0 : updated;
     }
 
