@@ -1,11 +1,13 @@
 package io.twinpilot.api.stats;
 
+import java.time.Duration;
 import java.time.Year;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,9 +17,15 @@ import org.springframework.web.bind.annotation.RestController;
 import io.twinpilot.api.analysis.AnalysisDtos.CoverageRequest;
 import io.twinpilot.api.analysis.AnalysisDtos.CoverageSummary;
 import io.twinpilot.api.analysis.CoverageService;
+import io.twinpilot.api.common.DataChangeEvents;
+import io.twinpilot.api.common.SingleFlightCache;
 import io.twinpilot.api.config.TwinPilotProperties;
 
-/** 대시보드 집계. 독립 집계 쿼리를 병렬로 실행한다. */
+/**
+ * 대시보드 집계. 독립 집계 쿼리를 병렬로 실행한다.
+ * 요청마다 쿼리 8개(커버리지 분석 2개 포함)가 커넥션을 하나씩 쓰므로, 결과를 짧게 캐시하고 동시 요청은 한 번만 계산한다.
+ * 건물·시설·위험도가 바뀌면 DataChangeEvents로 모든 레플리카의 캐시를 비운다.
+ */
 @RestController
 @RequestMapping("/api/v1/stats")
 public class StatsController {
@@ -26,13 +34,17 @@ public class StatsController {
     private final CoverageService coverage;
     private final ExecutorService executor;
     private final TwinPilotProperties.Standards standards;
+    private final SingleFlightCache<Integer, Summary> cache;
 
     public StatsController(JdbcClient jdbc, CoverageService coverage, ExecutorService virtualThreadExecutor,
-                           TwinPilotProperties props) {
+                           TwinPilotProperties props, DataChangeEvents changes,
+                           @Value("${twinpilot.stats.cache-ttl:15s}") Duration cacheTtl) {
         this.jdbc = jdbc;
         this.coverage = coverage;
         this.executor = virtualThreadExecutor;
         this.standards = props.standards();
+        this.cache = new SingleFlightCache<>(cacheTtl, 256);
+        changes.subscribe(cache::invalidateAll);
     }
 
     public record Totals(long buildings, Double avgRisk, long highRisk, long oldBuildings, double oldRatio) {
@@ -52,6 +64,13 @@ public class StatsController {
 
     @GetMapping("/summary")
     public Summary summary(@RequestParam(defaultValue = "30") int oldAgeYears) {
+        if (oldAgeYears < 1 || oldAgeYears > 200) {
+            throw new IllegalArgumentException("oldAgeYears는 1~200 사이여야 합니다.");
+        }
+        return cache.get(oldAgeYears, () -> compute(oldAgeYears));
+    }
+
+    private Summary compute(int oldAgeYears) {
         Map<String, Object> p = Map.of("hr", standards.highRiskThreshold(),
                 "oldYear", Year.now().getValue() - oldAgeYears);
 

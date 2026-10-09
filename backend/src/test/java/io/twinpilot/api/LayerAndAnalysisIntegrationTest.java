@@ -5,9 +5,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
 
 import tools.jackson.databind.JsonNode;
 
@@ -109,5 +111,50 @@ class LayerAndAnalysisIntegrationTest extends IntegrationTestBase {
         assertThat(s.path("regions").size()).isEqualTo(4);
         assertThat(s.path("hydrantCoverage").path("coverageRate").asDouble()).isBetween(1.0, 100.0);
         assertThat(s.path("riskHistogram").size()).isGreaterThan(3);
+    }
+
+    @Autowired
+    JdbcClient jdbc;
+
+    @Test
+    void analysisCachesFollowDataChanges() throws InterruptedException {
+        int before = plannedHydrants();
+        Map<String, Object> withPlanned = Map.of("facilityType", "HYDRANT", "includePlanned", true,
+                "includeBlindSpots", false, "topUncovered", 1);
+        JsonNode coverageBefore = post("/api/v1/analysis/coverage", withPlanned);
+        int coveredBefore = coverageBefore.path("summary").path("coveredBuildings").asInt();
+        // 소화전이 닿지 않는 건물 자리에 계획 소화전을 두면 그 건물이 커버된다.
+        JsonNode site = coverageBefore.path("topUncovered").path(0);
+        JsonNode created = post("/api/v1/facilities",
+                Map.of("type", "HYDRANT", "lon", site.path("lon").asDouble(), "lat", site.path("lat").asDouble()));
+        // 같은 레플리카에서 쓴 직후에는 캐시(통계·커버리지)가 바로 비워져 새 값이 보인다.
+        assertThat(plannedHydrants()).isEqualTo(before + 1);
+        assertThat(post("/api/v1/analysis/coverage", withPlanned).path("summary").path("coveredBuildings").asInt())
+                .isGreaterThan(coveredBefore);
+
+        // 다른 레플리카가 쓴 경우를 흉내 낸다: DB만 바꾸고 NOTIFY를 보내면 이 레플리카의 캐시도 비워진다(TTL 15초보다 빨리).
+        jdbc.sql("DELETE FROM facility WHERE id = :id").param("id", created.path("id").asInt()).update();
+        jdbc.sql("SELECT pg_notify('twinpilot_data_changed', 'test')").query(Object.class).optional();
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (plannedHydrants() != before && System.currentTimeMillis() < deadline) {
+            Thread.sleep(100);
+        }
+        assertThat(plannedHydrants()).isEqualTo(before);
+    }
+
+    @Test
+    void statsRejectsUnboundedCacheKeys() {
+        HttpStatusCode status = http.get().uri("/api/v1/stats/summary?oldAgeYears=100000")
+                .exchange((req, res) -> res.getStatusCode());
+        assertThat(status).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    private int plannedHydrants() {
+        for (JsonNode bucket : get("/api/v1/stats/summary").path("facilities")) {
+            if ("HYDRANT:PLANNED".equals(bucket.path("key").asString())) {
+                return bucket.path("count").asInt();
+            }
+        }
+        return 0;
     }
 }

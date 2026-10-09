@@ -1,0 +1,26 @@
+# 의존성·베이스 이미지·Actions 버전 업데이트를 주 1회 PR로 받는다(보안 패치는 즉시).
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /backend
+    schedule: {interval: weekly}
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: {interval: weekly}
+    groups:
+      cesium: {patterns: ["cesium", "@cesium/*"]}
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule: {interval: monthly}
+  - package-ecosystem: pip
+    directory: /mcp-server
+    schedule: {interval: weekly}
+  - package-ecosystem: pip
+    directory: /ai-agent
+    schedule: {interval: weekly}
+  - package-ecosystem: docker
+    directories: [/backend, /frontend, /mcp-server, /ai-agent, /infra/keycloak]
+    schedule: {interval: weekly}
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: monthly}

@@ -1,5 +1,6 @@
 package io.twinpilot.api.network;
 
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 
@@ -9,6 +10,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,7 +19,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.twinpilot.api.common.DataChangeEvents;
 import io.twinpilot.api.common.GeoJson;
+import io.twinpilot.api.common.SingleFlightCache;
 
 @RestController
 @RequestMapping("/api/v1/analysis")
@@ -25,20 +29,24 @@ public class NetworkController {
 
     private final RoadNetworkService network;
     private final ResponseAnalysisService response;
+    private final SingleFlightCache<ResponseRequest, ResponseAnalysisService.ResponseResult> cache;
 
-    public NetworkController(RoadNetworkService network, ResponseAnalysisService response) {
+    public NetworkController(RoadNetworkService network, ResponseAnalysisService response, DataChangeEvents changes,
+                             @Value("${twinpilot.analysis.cache-ttl:60s}") Duration cacheTtl) {
         this.network = network;
         this.response = response;
+        this.cache = new SingleFlightCache<>(cacheTtl, 256);
+        changes.subscribe(cache::invalidateAll);
     }
 
     public record ResponseRequest(Integer regionId, @DecimalMin("1") @DecimalMax("60") Double targetMin,
                                   @Min(0) @Max(200) Integer top) {
     }
 
-    /** 도로망 출동 시간 분석(동기). 건물별 시간은 REFRESH_RISK Job이 미리 계산해 둔다. */
+    /** 도로망 출동 시간 분석(동기). 건물별 시간은 REFRESH_RISK Job이 미리 계산해 둔다. 같은 조건은 데이터가 바뀔 때까지 재사용한다. */
     @PostMapping("/response")
     public ResponseAnalysisService.ResponseResult response(@Valid @RequestBody ResponseRequest req) {
-        return response.analyze(req.regionId(), req.targetMin(), req.top() == null ? 20 : req.top());
+        return cache.get(req, () -> response.analyze(req.regionId(), req.targetMin(), req.top() == null ? 20 : req.top()));
     }
 
     /** 출동 도달권(GeoJSON). minutes=3,5,7 처럼 최대 5개, 각 1~30분. */

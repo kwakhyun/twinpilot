@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.twinpilot.api.audit.AuditService;
+import io.twinpilot.api.common.DataChangeEvents;
 import io.twinpilot.api.common.GeoJson;
 import io.twinpilot.api.config.TwinPilotProperties;
 import io.twinpilot.api.security.CurrentUser;
@@ -37,12 +38,15 @@ public class LayerController {
     private final TwinPilotProperties.Standards standards;
     private final AuditService audit;
     private final CurrentUser currentUser;
+    private final DataChangeEvents changes;
 
-    public LayerController(JdbcClient jdbc, TwinPilotProperties props, AuditService audit, CurrentUser currentUser) {
+    public LayerController(JdbcClient jdbc, TwinPilotProperties props, AuditService audit, CurrentUser currentUser,
+                           DataChangeEvents changes) {
         this.jdbc = jdbc;
         this.standards = props.standards();
         this.audit = audit;
         this.currentUser = currentUser;
+        this.changes = changes;
     }
 
     @GetMapping("/regions")
@@ -130,6 +134,7 @@ public class LayerController {
                 .single();
         audit.record(currentUser.get(), "FACILITY_PLAN", "facility", Integer.toString(created.id()),
                 Map.of("type", created.type(), "lon", created.lon(), "lat", created.lat()));
+        changes.changed("facility");
         return ResponseEntity.created(URI.create("/api/v1/facilities/" + created.id())).body(created);
     }
 
@@ -140,6 +145,7 @@ public class LayerController {
             throw new IllegalStateException("계획(PLANNED) 상태 시설만 삭제할 수 있습니다: " + id);
         }
         audit.record(currentUser.get(), "FACILITY_PLAN_DELETE", "facility", Integer.toString(id), Map.of());
+        changes.changed("facility");
         return ResponseEntity.noContent().build();
     }
 
@@ -147,6 +153,7 @@ public class LayerController {
     public Map<String, Integer> clearPlanned() {
         int deleted = jdbc.sql("DELETE FROM facility WHERE status = 'PLANNED'").update();
         audit.record(currentUser.get(), "FACILITY_PLAN_CLEAR", "facility", null, Map.of("deleted", deleted));
+        changes.changed("facility");
         return Map.of("deleted", deleted);
     }
 }

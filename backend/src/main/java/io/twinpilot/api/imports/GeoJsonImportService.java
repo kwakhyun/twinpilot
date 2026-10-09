@@ -30,6 +30,7 @@ import tools.jackson.databind.ObjectReader;
 
 import io.twinpilot.api.analysis.RiskService;
 import io.twinpilot.api.audit.AuditService;
+import io.twinpilot.api.common.DataChangeEvents;
 import io.twinpilot.api.config.TwinPilotProperties;
 import io.twinpilot.api.job.JobHandler;
 import io.twinpilot.api.job.Progress;
@@ -68,9 +69,11 @@ public class GeoJsonImportService implements JobHandler {
     private final RiskService risk;
     private final AuditService audit;
     private final TwinPilotProperties.Imports config;
+    private final DataChangeEvents changes;
 
     public GeoJsonImportService(JdbcClient jdbc, JdbcTemplate jdbcTemplate, TransactionTemplate tx, ObjectMapper mapper,
-                                ObjectStorage storage, RiskService risk, AuditService audit, TwinPilotProperties props) {
+                                ObjectStorage storage, RiskService risk, AuditService audit, TwinPilotProperties props,
+                                DataChangeEvents changes) {
         this.jdbc = jdbc;
         this.jdbcTemplate = jdbcTemplate;
         this.tx = tx;
@@ -79,6 +82,7 @@ public class GeoJsonImportService implements JobHandler {
         this.risk = risk;
         this.audit = audit;
         this.config = props.imports();
+        this.changes = changes;
     }
 
     @Override
@@ -169,6 +173,7 @@ public class GeoJsonImportService implements JobHandler {
                 audit.record(actor, "DATA_IMPORT", layer.name(), source,
                         Map.of("mode", mode, "inserted", merged[0], "updated", merged[1], "removed", merged[2],
                                 "invalid", invalid));
+                changes.changed("import");
                 if (refresh) {
                     riskResult = risk.refreshAll(scaled(progress, 75, 98));
                 }

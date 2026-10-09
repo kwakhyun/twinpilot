@@ -4,6 +4,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import io.twinpilot.api.common.DataChangeEvents;
 import io.twinpilot.api.config.TwinPilotProperties;
 import io.twinpilot.api.job.Progress;
 import io.twinpilot.api.network.RoadNetworkService;
@@ -22,12 +23,15 @@ public class RiskService {
     private final TransactionTemplate tx;
     private final TwinPilotProperties.Standards standards;
     private final RoadNetworkService network;
+    private final DataChangeEvents changes;
 
-    public RiskService(JdbcClient jdbc, TransactionTemplate tx, TwinPilotProperties props, RoadNetworkService network) {
+    public RiskService(JdbcClient jdbc, TransactionTemplate tx, TwinPilotProperties props, RoadNetworkService network,
+                       DataChangeEvents changes) {
         this.jdbc = jdbc;
         this.tx = tx;
         this.standards = props.standards();
         this.network = network;
+        this.changes = changes;
     }
 
     public record RefreshResult(int updatedBuildings, RoadNetworkService.ComputeResult network) {
@@ -48,6 +52,7 @@ public class RiskService {
             return refreshIn(jdbc);
         });
         progress.report(98, "건물 %d동 갱신".formatted(updated));
+        changes.changed("risk");
         return updated == null ? 0 : updated;
     }
 

@@ -1,6 +1,7 @@
 package io.twinpilot.api.analysis;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -8,6 +9,7 @@ import java.util.UUID;
 
 import jakarta.validation.Valid;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -24,6 +26,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import io.twinpilot.api.analysis.AnalysisDtos.CoverageRequest;
 import io.twinpilot.api.analysis.AnalysisDtos.CoverageResult;
 import io.twinpilot.api.analysis.AnalysisDtos.JobRequest;
+import io.twinpilot.api.common.DataChangeEvents;
+import io.twinpilot.api.common.SingleFlightCache;
 import io.twinpilot.api.job.JobQueue;
 import io.twinpilot.api.job.JobView;
 import io.twinpilot.api.security.CurrentUser;
@@ -35,17 +39,24 @@ public class AnalysisController {
     private final CoverageService coverage;
     private final JobQueue jobs;
     private final CurrentUser currentUser;
+    private final SingleFlightCache<CoverageRequest, CoverageResult> cache;
 
-    public AnalysisController(CoverageService coverage, JobQueue jobs, CurrentUser currentUser) {
+    public AnalysisController(CoverageService coverage, JobQueue jobs, CurrentUser currentUser, DataChangeEvents changes,
+                              @Value("${twinpilot.analysis.cache-ttl:60s}") Duration cacheTtl) {
         this.coverage = coverage;
         this.jobs = jobs;
         this.currentUser = currentUser;
+        this.cache = new SingleFlightCache<>(cacheTtl, 512);
+        changes.subscribe(cache::invalidateAll);
     }
 
-    /** 커버리지·사각지대 분석(동기). 건물 수천 동 규모에서 1초 이내를 목표로 한다. */
+    /**
+     * 커버리지·사각지대 분석(동기). 건물 수천 동 규모에서 1초 이내를 목표로 한다.
+     * 같은 조건의 분석은 시설·건물·위험도가 바뀌기 전까지 결과를 재사용한다(DB 부하의 대부분이 공간 분석이다).
+     */
     @PostMapping("/coverage")
     public CoverageResult coverage(@Valid @RequestBody CoverageRequest req) {
-        return coverage.analyze(req);
+        return cache.get(req, () -> coverage.analyze(req));
     }
 
     /**
