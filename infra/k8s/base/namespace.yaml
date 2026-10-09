@@ -3,7 +3,6 @@ kind: Namespace
 metadata:
   name: twinpilot
   labels:
-    # 앱 워크로드는 restricted 기준을 충족하도록 작성했다. PostGIS 공식 이미지는 루트로 시작하므로
-    # 강제(enforce)는 baseline, 경고(warn)는 restricted로 둔다.
-    pod-security.kubernetes.io/enforce: baseline
+    # 모든 워크로드(PostGIS·Job 포함)가 비루트·읽기 전용 루트·권한 상승 금지로 restricted 기준을 충족한다.
+    pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted

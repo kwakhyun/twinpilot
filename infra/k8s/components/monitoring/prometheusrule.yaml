@@ -1,0 +1,102 @@
+# 자동 생성 파일: infra/k8s/components/monitoring/generate.py로 만든다(직접 고치지 않는다).
+# 원본: infra/observability/alerts.yml(+ 아래 twinpilot-k8s 그룹)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: twinpilot
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: twinpilot
+      rules:
+        - alert: TwinApiHighErrorRate
+          expr: |
+            sum(rate(http_server_requests_seconds_count{job="twin-api",status=~"5.."}[5m]))
+              / clamp_min(sum(rate(http_server_requests_seconds_count{job="twin-api"}[5m])), 1e-9) > 0.02
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: "twin-api 5xx 비율 2% 초과"
+        - alert: TwinApiSlowRequests
+          expr: |
+            histogram_quantile(0.95, sum by (le, uri) (rate(http_server_requests_seconds_bucket{job="twin-api",uri!~".*stream|.*events"}[5m]))) > 1
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "twin-api p95 지연 1초 초과: {{ $labels.uri }}"
+        - alert: JobQueueBacklog
+          expr: max(twinpilot_jobs_queued) > 20
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "분석 Job 대기열이 10분 넘게 20건 초과"
+        - alert: JobFailures
+          expr: sum(increase(twinpilot_jobs_completed_total{status="FAILED"}[15m])) > 3
+          labels: { severity: warning }
+          annotations:
+            summary: "최근 15분 Job 실패 3건 초과"
+        - alert: SensorIngestStalled
+          expr: sum(rate(twinpilot_sensors_readings_total{result="accepted"}[5m])) == 0
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "센서 측정값 수집이 10분 넘게 멈춤"
+        - alert: AgentLlmFallbacks
+          expr: sum(increase(twinpilot_agent_llm_fallback_total[15m])) > 5
+          labels: { severity: warning }
+          annotations:
+            summary: "LLM 장애로 규칙 기반 응답 전환이 잦음(15분 5회 초과)"
+        - alert: AgentErrors
+          expr: sum(increase(twinpilot_agent_chat_total{outcome!="ok"}[15m])) > 10
+          labels: { severity: warning }
+          annotations:
+            summary: "에이전트 대화 오류·시간 초과 증가"
+        - alert: McpToolErrors
+          expr: |
+            sum(rate(twinpilot_mcp_tool_calls_total{outcome!="ok"}[10m]))
+              / clamp_min(sum(rate(twinpilot_mcp_tool_calls_total[10m])), 1e-9) > 0.1
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "MCP 도구 오류율 10% 초과"
+        - alert: DbPoolExhausted
+          expr: max(hikaricp_connections_pending{job="twin-api"}) > 5
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: "DB 커넥션 대기 발생(풀 고갈)"
+    - name: twinpilot-k8s
+      rules:
+        - alert: TwinPilotTargetDown
+          expr: up{namespace="twinpilot"} == 0
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: "메트릭 대상 응답 없음: {{ $labels.job }} ({{ $labels.pod }})"
+        - alert: TwinPilotPodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="twinpilot"}[15m]) > 3
+          labels: { severity: warning }
+          annotations:
+            summary: "컨테이너 재시작 반복: {{ $labels.pod }}/{{ $labels.container }}"
+        - alert: TwinPilotBackupMissing
+          expr: time() - max(kube_cronjob_status_last_successful_time{namespace="twinpilot",cronjob="postgres-backup"}) > 26 * 3600
+          for: 30m
+          labels: { severity: critical }
+          annotations:
+            summary: "DB 백업이 26시간 넘게 성공하지 않음"
+            runbook: docs/runbooks/backup-restore.md
+        - alert: TwinPilotBackupFailed
+          expr: max(kube_job_status_failed{namespace="twinpilot",job_name=~"postgres-backup-.*"}) > 0
+          labels: { severity: warning }
+          annotations:
+            summary: "DB 백업 Job 실패: {{ $labels.job_name }}"
+            runbook: docs/runbooks/backup-restore.md
+        - alert: TwinPilotDbVolumeFilling
+          expr: |
+            kubelet_volume_stats_available_bytes{namespace="twinpilot",persistentvolumeclaim=~"data-postgis-.*"}
+              / kubelet_volume_stats_capacity_bytes{namespace="twinpilot",persistentvolumeclaim=~"data-postgis-.*"} < 0.15
+          for: 15m
+          labels: { severity: warning }
+          annotations:
+            summary: "PostGIS 볼륨 여유 공간 15% 미만"

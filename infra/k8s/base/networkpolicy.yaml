@@ -1,7 +1,11 @@
 # 네임스페이스 기본 차단 후 필요한 흐름만 허용한다(인그레스 방향). NKS는 Cilium CNI로 정책을 적용한다.
-#   외부 → frontend → twin-api → postgis
-#                   → ai-agent → mcp-server → twin-api
-#                     ai-agent → postgis(대화 상태 체크포인트, 선택)
+#   외부 → frontend ─┬→ twin-api ─────────────→ postgis
+#                    ├→ ai-agent → mcp-server → twin-api
+#                    └→ keycloak(/auth)
+#   twin-api·mcp-server·ai-agent → keycloak(JWKS·토큰 교환)
+#   keycloak·ai-agent(체크포인트)·postgres-bootstrap·postgres-backup → postgis
+#   monitoring 네임스페이스(Prometheus) → 각 서비스의 메트릭 포트
+# 프로브(kubelet)는 노드에서 오는 트래픽이라 NetworkPolicy 대상이 아니다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -26,7 +30,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: twin-api-from-frontend-and-mcp
+  name: twin-api-ingress
 spec:
   podSelector:
     matchLabels:
@@ -42,11 +46,17 @@ spec:
               app.kubernetes.io/name: mcp-server
       ports:
         - port: 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 8081
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: mcp-server-from-agent
+  name: mcp-server-ingress
 spec:
   podSelector:
     matchLabels:
@@ -57,13 +67,16 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: ai-agent
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
       ports:
         - port: 8090
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: ai-agent-from-frontend
+  name: ai-agent-ingress
 spec:
   podSelector:
     matchLabels:
@@ -74,13 +87,57 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: frontend
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
       ports:
         - port: 8000
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: postgis-from-api-and-agent
+  name: keycloak-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+  policyTypes: ["Ingress"]
+  ingress:
+    # 브라우저 로그인(frontend의 /auth 프록시)과 서비스 간 토큰 검증·교환
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: frontend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: twin-api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mcp-server
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-agent
+      ports:
+        - port: 8080
+    # 레플리카 간 세션 캐시(JGroups 데이터·장애 감지 포트)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloak
+      ports:
+        - port: 7800
+        - port: 57800
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgis-ingress
 spec:
   podSelector:
     matchLabels:
@@ -94,5 +151,14 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: ai-agent
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloak
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-bootstrap
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-backup
       ports:
         - port: 5432

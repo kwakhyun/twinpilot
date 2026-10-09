@@ -23,8 +23,13 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: mcp-server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8090"
+        prometheus.io/path: /metrics
     spec:
       serviceAccountName: twinpilot
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -38,6 +43,11 @@ spec:
           envFrom:
             - configMapRef:
                 name: twinpilot-config
+          env:
+            # 에이전트 토큰을 twin-api용 토큰으로 교환할 때 쓰는 클라이언트 시크릿
+            - name: MCP_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: twinpilot-secrets, key: MCP_CLIENT_SECRET}
           readinessProbe:
             httpGet:
               path: /healthz

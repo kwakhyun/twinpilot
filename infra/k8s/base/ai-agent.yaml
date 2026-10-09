@@ -15,7 +15,7 @@ kind: Deployment
 metadata:
   name: ai-agent
 spec:
-  # 대화 상태가 메모리에 있으면 1개로 둔다. CHECKPOINT_DB_URL(PostgreSQL)을 주면 여러 개로 확장할 수 있다.
+  # 대화 상태는 agent 데이터베이스(PostgreSQL 체크포인트)에 있으므로 레플리카를 늘려도 세션이 이어진다.
   replicas: 1
   selector:
     matchLabels:
@@ -24,8 +24,13 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: ai-agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
     spec:
       serviceAccountName: twinpilot
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -47,12 +52,16 @@ spec:
                   name: twinpilot-secrets
                   key: ANTHROPIC_API_KEY
                   optional: true
-            - name: CHECKPOINT_DB_URL
+            # 사용자 토큰을 MCP용 토큰으로 교환할 때 쓰는 클라이언트 시크릿
+            - name: AGENT_CLIENT_SECRET
               valueFrom:
-                secretKeyRef:
-                  name: twinpilot-secrets
-                  key: CHECKPOINT_DB_URL
-                  optional: true
+                secretKeyRef: {name: twinpilot-secrets, key: AGENT_CLIENT_SECRET}
+            # postgres-bootstrap Job이 만든 agent 데이터베이스. 비밀번호는 URL에 그대로 들어가므로 영숫자로 만든다.
+            - name: AGENT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: twinpilot-secrets, key: AGENT_DB_PASSWORD}
+            - name: CHECKPOINT_DB_URL
+              value: postgresql://agent:$(AGENT_DB_PASSWORD)@postgis:5432/agent
           readinessProbe:
             httpGet:
               path: /agent/health

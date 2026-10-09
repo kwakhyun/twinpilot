@@ -27,5 +27,5 @@ COPY --from=build /extracted/application/ ./
 USER 10001
 ENV STORAGE_LOCAL_ROOT=/data/storage LANG=C.UTF-8 \
     JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
-EXPOSE 8080
+EXPOSE 8080 8081
 ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]

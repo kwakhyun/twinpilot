@@ -10,18 +10,27 @@ resources:
   - serviceaccount.yaml
   - configmap.yaml
   - postgis.yaml
+  - postgres-bootstrap.yaml
+  - keycloak.yaml
   - twin-api.yaml
   - mcp-server.yaml
   - ai-agent.yaml
   - frontend.yaml
   - ingress.yaml
   - networkpolicy.yaml
+# docker compose와 같은 SQL을 쓴다(keycloak·agent 데이터베이스와 사용자, 멱등).
+configMapGenerator:
+  - name: postgres-bootstrap-sql
+    files:
+      - postgis/init-databases.sql
 images:
   - name: twinpilot/twin-api
-    newTag: 0.1.0
+    newTag: 0.2.0
   - name: twinpilot/mcp-server
-    newTag: 0.1.0
+    newTag: 0.2.0
   - name: twinpilot/ai-agent
-    newTag: 0.1.0
+    newTag: 0.2.0
   - name: twinpilot/frontend
-    newTag: 0.1.0
+    newTag: 0.2.0
+  - name: twinpilot/keycloak
+    newTag: 0.2.0

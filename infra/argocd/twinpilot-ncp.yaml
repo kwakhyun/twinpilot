@@ -1,0 +1,46 @@
+# TwinPilot 운영(NKS) 애플리케이션. Git의 infra/k8s/overlays/ncp를 클러스터와 계속 맞춘다.
+# twinpilot-secrets·ncr-cred Secret은 Git에 두지 않고 클러스터에 직접 만든다(docs/runbooks/ncp-deploy.md).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: twinpilot
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: twinpilot
+  source:
+    repoURL: REPLACE_WITH_REPO_URL
+    targetRevision: main
+    path: infra/k8s/overlays/ncp
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: twinpilot
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - PruneLast=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  # HPA가 조정하는 레플리카 수는 Git 값으로 되돌리지 않는다.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: twin-api
+      jsonPointers: ["/spec/replicas"]
+    - group: apps
+      kind: Deployment
+      name: ai-agent
+      jsonPointers: ["/spec/replicas"]
+    - group: apps
+      kind: Deployment
+      name: mcp-server
+      jsonPointers: ["/spec/replicas"]

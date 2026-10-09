@@ -1,0 +1,38 @@
+# Argo CD 프로젝트: 앱(twinpilot)은 twinpilot 네임스페이스에만, 플랫폼(모니터링 스택)은 monitoring 네임스페이스와
+# 클러스터 범위 리소스(CRD·ClusterRole 등)에만 배포할 수 있다.
+#   kubectl apply -n argocd -f infra/argocd/
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: twinpilot
+  namespace: argocd
+spec:
+  description: TwinPilot 애플리케이션
+  sourceRepos:
+    - REPLACE_WITH_REPO_URL          # 예: https://github.com/<org>/twinpilot.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: twinpilot
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  orphanedResources:
+    warn: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: 클러스터 공용 구성요소(모니터링)
+  sourceRepos:
+    - https://prometheus-community.github.io/helm-charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+    - server: https://kubernetes.default.svc
+      namespace: kube-system           # 차트가 kubelet·coredns 수집용 Service를 만든다
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"

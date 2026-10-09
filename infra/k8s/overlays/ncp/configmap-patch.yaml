@@ -3,10 +3,30 @@ kind: ConfigMap
 metadata:
   name: twinpilot-config
 data:
+  # 서비스 도메인. 여기만 바꾸면 kustomization.yaml의 replacements가 Ingress host와
+  # 공개 URL(TWINPILOT_WEB_URL·OIDC_*·KC_HOSTNAME·CORS_ALLOWED_ORIGINS)의 호스트 부분을 함께 바꾼다.
+  PUBLIC_HOST: twinpilot.example.com
+  TWINPILOT_WEB_URL: https://PUBLIC_HOST
+  OIDC_ISSUER_URI: https://PUBLIC_HOST/auth/realms/twinpilot
+  OIDC_ISSUER: https://PUBLIC_HOST/auth/realms/twinpilot
+  OIDC_AUTHORITY: https://PUBLIC_HOST/auth/realms/twinpilot
+  KC_HOSTNAME: https://PUBLIC_HOST/auth
+  CORS_ALLOWED_ORIGINS: https://PUBLIC_HOST
+  SWAGGER_UI_ENABLED: "false"
   # 3D 모델은 NCP Object Storage(S3 호환)에 저장해 twin-api 레플리카가 공유한다.
   STORAGE_TYPE: s3
   S3_ENDPOINT: https://kr.object.ncloudstorage.com
   S3_REGION: kr-standard
   S3_BUCKET: twinpilot-models
-  # 데모 단계에서는 합성 데이터를 적재한다. 실제 데이터 적재 후 "false"로 바꾼다.
+  # DB 백업(components/backup)
+  BACKUP_S3_ENDPOINT: https://kr.object.ncloudstorage.com
+  BACKUP_S3_REGION: kr-standard
+  BACKUP_S3_BUCKET: twinpilot-backups
+  BACKUP_RETENTION_DAYS: "14"
+  # 데모 단계에서는 합성 데이터와 센서 시뮬레이터를 쓴다. 실제 데이터·게이트웨이 연동 후 "false"로 바꾼다.
   SEED_ENABLED: "true"
+  SENSOR_SIMULATE: "true"
+  # 분산 추적: 클러스터에 OTLP 수집기를 두면 주소를 넣고 켠다(twin-api는 TRACING_EXPORT_ENABLED·OTEL_TRACES_ENDPOINT,
+  # mcp-server·ai-agent는 OTEL_EXPORTER_OTLP_ENDPOINT를 읽는다. 비우면 추적을 내보내지 않는다).
+  TRACING_EXPORT_ENABLED: "false"
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""

@@ -25,6 +25,7 @@ spec:
         app.kubernetes.io/name: frontend
     spec:
       serviceAccountName: twinpilot
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         # nginx(uid·gid 101)가 템플릿 치환 결과를 emptyDir에 쓸 수 있도록 그룹 소유권을 맞춘다.
@@ -40,14 +41,22 @@ spec:
           env:
             - name: TWIN_API_UPSTREAM
               valueFrom:
-                configMapKeyRef:
-                  name: twinpilot-config
-                  key: TWIN_API_UPSTREAM
+                configMapKeyRef: {name: twinpilot-config, key: TWIN_API_UPSTREAM}
             - name: AGENT_UPSTREAM
               valueFrom:
-                configMapKeyRef:
-                  name: twinpilot-config
-                  key: AGENT_UPSTREAM
+                configMapKeyRef: {name: twinpilot-config, key: AGENT_UPSTREAM}
+            - name: KEYCLOAK_UPSTREAM
+              valueFrom:
+                configMapKeyRef: {name: twinpilot-config, key: KEYCLOAK_UPSTREAM}
+            - name: AUTH_MODE
+              valueFrom:
+                configMapKeyRef: {name: twinpilot-config, key: AUTH_MODE}
+            - name: OIDC_AUTHORITY
+              valueFrom:
+                configMapKeyRef: {name: twinpilot-config, key: OIDC_AUTHORITY}
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                configMapKeyRef: {name: twinpilot-config, key: OIDC_CLIENT_ID}
           readinessProbe:
             httpGet:
               path: /healthz
@@ -58,6 +67,11 @@ spec:
               path: /healthz
               port: http
             periodSeconds: 15
+          lifecycle:
+            # SSE 연결이 남아 있어도 새 요청이 들어오지 않도록 엔드포인트 제거가 전파될 시간을 준다.
+            preStop:
+              exec:
+                command: ["sleep", "5"]
           resources:
             requests:
               cpu: 50m

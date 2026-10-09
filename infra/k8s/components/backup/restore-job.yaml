@@ -1,0 +1,90 @@
+# 복구 Job(수동 실행 전용, kustomization에 포함하지 않는다). 절차: docs/runbooks/backup-restore.md
+#   1) BACKUP_TIMESTAMP를 복구할 백업 시각으로 바꾼다(aws s3 ls s3://<버킷>/postgres/로 확인).
+#   2) DB에 붙은 워크로드를 0으로 줄인 뒤 실행한다: kubectl -n twinpilot apply -f restore-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-restore
+  namespace: twinpilot
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        # postgis NetworkPolicy가 백업 파드 레이블만 허용하므로 같은 레이블을 쓴다.
+        app.kubernetes.io/name: postgres-backup
+    spec:
+      serviceAccountName: twinpilot
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: download
+          image: amazon/aws-cli:2.37.4
+          command: ["bash", "/scripts/download.sh"]
+          env:
+            - name: BACKUP_TIMESTAMP
+              value: "REPLACE_WITH_TIMESTAMP"
+            - name: BACKUP_S3_ENDPOINT
+              valueFrom:
+                configMapKeyRef: {name: twinpilot-config, key: BACKUP_S3_ENDPOINT}
+            - name: BACKUP_S3_BUCKET
+              valueFrom:
+                configMapKeyRef: {name: twinpilot-config, key: BACKUP_S3_BUCKET}
+            - name: AWS_DEFAULT_REGION
+              valueFrom:
+                configMapKeyRef: {name: twinpilot-config, key: BACKUP_S3_REGION}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: twinpilot-secrets, key: S3_ACCESS_KEY}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: twinpilot-secrets, key: S3_SECRET_KEY}
+            - {name: AWS_REQUEST_CHECKSUM_CALCULATION, value: when_required}
+            - {name: AWS_RESPONSE_CHECKSUM_VALIDATION, value: when_required}
+            - {name: AWS_EC2_METADATA_DISABLED, value: "true"}
+            - {name: HOME, value: /tmp}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: scripts, mountPath: /scripts}
+            - {name: backup, mountPath: /backup}
+            - {name: tmp, mountPath: /tmp}
+      containers:
+        - name: restore
+          image: postgis/postgis:16-3.5
+          command: ["sh", "/scripts/restore.sh"]
+          env:
+            - name: BACKUP_TIMESTAMP
+              value: "REPLACE_WITH_TIMESTAMP"
+            - {name: BACKUP_DATABASES, value: twinpilot keycloak agent}
+            - {name: PGHOST, value: postgis}
+            - name: PGUSER
+              valueFrom:
+                configMapKeyRef: {name: twinpilot-config, key: DB_USER}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: {name: twinpilot-secrets, key: DB_PASSWORD}
+          securityContext:
+            runAsUser: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: scripts, mountPath: /scripts}
+            - {name: backup, mountPath: /backup, readOnly: true}
+      volumes:
+        - name: scripts
+          configMap:
+            name: postgres-backup-scripts
+        - name: backup
+          emptyDir:
+            sizeLimit: 20Gi
+        - name: tmp
+          emptyDir: {}

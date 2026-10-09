@@ -1,24 +1,44 @@
+# 공통 설정(비밀 아님). 공개 주소(OIDC_ISSUER_URI·OIDC_ISSUER·OIDC_AUTHORITY·KC_HOSTNAME·TWINPILOT_WEB_URL)는
+# 환경마다 오버레이에서 바꾼다. 비밀 값은 twinpilot-secrets(Secret)에만 둔다.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: twinpilot-config
 data:
-  # twin-api
+  # ---------- 공개 주소(브라우저 기준)
+  TWINPILOT_WEB_URL: http://localhost:8088
+  OIDC_ISSUER_URI: http://localhost:8088/auth/realms/twinpilot     # twin-api: 토큰 iss 검증
+  OIDC_ISSUER: http://localhost:8088/auth/realms/twinpilot         # mcp-server·ai-agent
+  OIDC_AUTHORITY: http://localhost:8088/auth/realms/twinpilot      # frontend(브라우저 로그인)
+  KC_HOSTNAME: http://localhost:8088/auth                          # keycloak 공개 URL
+  # ---------- 클러스터 내부 주소
+  OIDC_JWK_SET_URI: http://keycloak:8080/auth/realms/twinpilot/protocol/openid-connect/certs
+  OIDC_INTERNAL_URL: http://keycloak:8080/auth/realms/twinpilot
+  # ---------- twin-api
   DB_URL: jdbc:postgresql://postgis:5432/twinpilot
   DB_USER: twin
   SEED_ENABLED: "true"
   STORAGE_TYPE: local
   STORAGE_LOCAL_ROOT: /data/storage
   SENSOR_SIMULATE: "true"
-  # mcp-server
+  LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+  TRACING_EXPORT_ENABLED: "false"
+  OTEL_TRACES_ENDPOINT: http://otel-collector.observability:4318/v1/traces
+  # ---------- mcp-server
   TWIN_API_URL: http://twin-api:8080
   MCP_HOST: 0.0.0.0
   MCP_PORT: "8090"
-  # ai-agent
+  MCP_RESOURCE_URL: http://mcp-server:8090/mcp
+  MCP_ALLOWED_HOSTS: mcp-server:8090,mcp-server
+  # ---------- ai-agent
   MCP_URL: http://mcp-server:8090/mcp
   AGENT_MODE: auto
   LLM_MODEL: claude-opus-5-5
   LLM_EFFORT: medium
-  # frontend(nginx 업스트림)
+  LOG_FORMAT: json
+  # ---------- frontend(nginx)
   TWIN_API_UPSTREAM: twin-api:8080
   AGENT_UPSTREAM: ai-agent:8000
+  KEYCLOAK_UPSTREAM: keycloak:8080
+  AUTH_MODE: oidc
+  OIDC_CLIENT_ID: twinpilot-web

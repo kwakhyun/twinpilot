@@ -1,0 +1,135 @@
+# Keycloak(OIDC). realm(역할·클라이언트)은 이미지에 포함돼 있고 최초 기동 시 가져온다.
+# 클러스터링: Keycloak 26 기본 캐시 스택(jdbc-ping)이 DB에 노드 주소를 등록해 서로를 찾는다.
+#   레플리카를 늘려도 로그인 세션이 공유되고, 노드 간 통신은 자동 발급 인증서로 mTLS 암호화된다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+spec:
+  selector:
+    app.kubernetes.io/name: keycloak
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: management
+      port: 9000
+      targetPort: management
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak
+    spec:
+      serviceAccountName: twinpilot
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloak
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak
+          image: twinpilot/keycloak
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9000
+            - name: jgroups
+              containerPort: 7800
+            - name: jgroups-fd
+              containerPort: 57800
+          env:
+            # 파드 IP로 클러스터 전송을 바인드한다(파드 대역이 사설 대역이 아니어도 동작).
+            - name: POD_IP
+              valueFrom:
+                fieldRef: {fieldPath: status.podIP}
+            - name: KC_CACHE_EMBEDDED_NETWORK_BIND_ADDRESS
+              value: $(POD_IP)
+            - name: KC_DB_URL
+              value: jdbc:postgresql://postgis:5432/keycloak
+            - name: KC_DB_USERNAME
+              value: keycloak
+            # 기본 풀(100)은 레플리카 수만큼 곱해져 PostgreSQL max_connections를 넘길 수 있다.
+            - name: KC_DB_POOL_MAX_SIZE
+              value: "20"
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: twinpilot-secrets, key: KEYCLOAK_DB_PASSWORD}
+            - name: KC_HOSTNAME
+              valueFrom:
+                configMapKeyRef: {name: twinpilot-config, key: KC_HOSTNAME}
+            # 클러스터 내부 서비스(JWKS·토큰 교환)는 keycloak:8080으로 직접 호출한다.
+            - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
+              value: "true"
+            - name: KC_HTTP_ENABLED
+              value: "true"      # TLS는 ALB·Ingress에서 끝낸다
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: admin
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: twinpilot-secrets, key: KEYCLOAK_ADMIN_PASSWORD}
+            - name: KC_LOG_CONSOLE_OUTPUT
+              value: json
+            - name: JAVA_OPTS_KC_HEAP
+              value: "-XX:MaxRAMPercentage=70"
+            # realm 가져오기 자리표시자(${...})에 쓰는 값
+            - name: TWINPILOT_WEB_URL
+              valueFrom:
+                configMapKeyRef: {name: twinpilot-config, key: TWINPILOT_WEB_URL}
+            - name: AGENT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: twinpilot-secrets, key: AGENT_CLIENT_SECRET}
+            - name: MCP_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: twinpilot-secrets, key: MCP_CLIENT_SECRET}
+            - name: SENSOR_GATEWAY_SECRET
+              valueFrom:
+                secretKeyRef: {name: twinpilot-secrets, key: SENSOR_GATEWAY_SECRET}
+          # health/ready는 realm 가져오기 전에도 UP이므로, realm 엔드포인트로 준비 여부를 본다.
+          startupProbe:
+            httpGet: {path: /auth/realms/twinpilot/.well-known/openid-configuration, port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /auth/realms/twinpilot/.well-known/openid-configuration, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /auth/health/live, port: management}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 250m, memory: 768Mi}
+            limits: {memory: 1536Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: kc-tmp, mountPath: /opt/keycloak/data/tmp}
+            # 트랜잭션 로그(XA 미사용이라 휘발돼도 된다). 쓸 수 없으면 복구 모듈 초기화가 각각 10초씩 지연된다.
+            - {name: kc-txlog, mountPath: /opt/keycloak/data/transaction-logs}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - {name: kc-tmp, emptyDir: {}}
+        - {name: kc-txlog, emptyDir: {}}

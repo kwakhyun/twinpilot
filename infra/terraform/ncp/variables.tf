@@ -68,3 +68,9 @@ variable "models_bucket" {
   type        = string
   default     = "twinpilot-models"
 }
+
+variable "backups_bucket" {
+  description = "DB 백업용 Object Storage 버킷(전역 고유)"
+  type        = string
+  default     = "twinpilot-backups"
+}

@@ -1,7 +1,9 @@
 # 로컬 클러스터(kind 등) 검증용
-#   kind load docker-image twinpilot/twin-api:0.1.0 ... (이미지 4종)
+#   docker compose -f infra/docker-compose.yml build   # 이미지 5종(twin-api·mcp-server·ai-agent·frontend·keycloak)
+#   kind load docker-image twinpilot/twin-api:0.2.0 ...
 #   kubectl apply -k infra/k8s/overlays/local
-#   kubectl -n twinpilot port-forward svc/frontend 8088:8080
+#   kubectl -n twinpilot port-forward svc/frontend 8088:8080   → http://localhost:8088 (데모 계정 viewer·analyst·planner·admin)
+# 아래 시크릿은 로컬 전용 값이다. 운영 시크릿은 overlays/ncp/secrets.env.example을 참고한다.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -10,9 +12,20 @@ secretGenerator:
   - name: twinpilot-secrets
     namespace: twinpilot
     literals:
-      - DB_PASSWORD=twin-local
-      # 대화 상태를 PostgreSQL에 두어 ai-agent를 2개로 띄워도 세션이 이어지게 한다.
-      - CHECKPOINT_DB_URL=postgresql://twin:twin-local@postgis:5432/twinpilot
+      - DB_PASSWORD=twinlocalonly
+      - KEYCLOAK_DB_PASSWORD=keycloaklocalonly
+      - AGENT_DB_PASSWORD=agentlocalonly
+      - KEYCLOAK_ADMIN_PASSWORD=admin-local-only
+      - AGENT_CLIENT_SECRET=agent-secret-local-only
+      - MCP_CLIENT_SECRET=mcp-secret-local-only
+      - SENSOR_GATEWAY_SECRET=sensor-secret-local-only
+      - DEMO_USER_PASSWORD=twinpilot-demo
+# 데모 사용자는 로컬 환경에서만 realm 가져오기에 덧붙인다.
+configMapGenerator:
+  - name: keycloak-demo-users
+    namespace: twinpilot
+    files:
+      - twinpilot-users-0.json
 replicas:
   - name: ai-agent
     count: 2
@@ -24,6 +37,22 @@ patches:
       - op: add
         path: /spec/ingressClassName
         value: nginx
+  - target:
+      kind: Deployment
+      name: keycloak
+    patch: |-
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value: {name: demo-users, configMap: {name: keycloak-demo-users}}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: demo-users, mountPath: /opt/keycloak/data/import/twinpilot-users-0.json, subPath: twinpilot-users-0.json, readOnly: true}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DEMO_USER_PASSWORD
+          valueFrom:
+            secretKeyRef: {name: twinpilot-secrets, key: DEMO_USER_PASSWORD}
   # kind에 미리 적재한 이미지를 쓴다.
   - target:
       kind: Deployment

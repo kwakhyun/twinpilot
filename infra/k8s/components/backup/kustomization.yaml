@@ -1,0 +1,20 @@
+# PostgreSQL 일일 백업 → Object Storage(S3 호환)
+#   필요 값: twinpilot-config의 BACKUP_S3_ENDPOINT·BACKUP_S3_BUCKET·BACKUP_RETENTION_DAYS,
+#           twinpilot-secrets의 S3_ACCESS_KEY·S3_SECRET_KEY
+#   복구 절차: docs/runbooks/backup-restore.md
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - cronjob.yaml
+configMapGenerator:
+  # 복구 Job(restore-job.yaml)을 kubectl로 직접 만들 때도 같은 이름으로 참조하도록 해시 접미사를 붙이지 않는다.
+  - name: postgres-backup-scripts
+    options:
+      disableNameSuffixHash: true
+    files:
+      - dump.sh
+      - upload.sh
+      - download.sh
+      - restore.sh
+patches:
+  - path: config-defaults.yaml

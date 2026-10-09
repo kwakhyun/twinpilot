@@ -1,0 +1,19 @@
+# Prometheus Operator(kube-prometheus-stack) 연동: ServiceMonitor·PrometheusRule·Grafana 대시보드
+#   전제: monitoring 네임스페이스에 kube-prometheus-stack 설치(infra/argocd/platform-monitoring.yaml)
+#   prometheusrule.yaml·dashboards/는 generate.py로 infra/observability에서 만든다(compose와 같은 경보·대시보드).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - servicemonitors.yaml
+  - prometheusrule.yaml
+configMapGenerator:
+  # Grafana 사이드카가 grafana_dashboard 레이블이 붙은 ConfigMap을 대시보드로 읽는다.
+  - name: twinpilot-grafana-dashboards
+    files:
+      - dashboards/twinpilot-overview.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: TwinPilot

@@ -139,3 +139,8 @@ resource "ncloud_nks_node_pool" "default" {
 resource "ncloud_objectstorage_bucket" "models" {
   bucket_name = var.models_bucket
 }
+
+# PostgreSQL 일일 백업(infra/k8s/components/backup). 보관 기간 정리는 백업 Job이 직접 한다(BACKUP_RETENTION_DAYS).
+resource "ncloud_objectstorage_bucket" "backups" {
+  bucket_name = var.backups_bucket
+}

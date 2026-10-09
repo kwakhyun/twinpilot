@@ -21,3 +21,7 @@ output "next_steps" {
     3) kubectl apply -k infra/k8s/overlays/ncp
   EOT
 }
+
+output "backups_bucket" {
+  value = ncloud_objectstorage_bucket.backups.bucket_name
+}

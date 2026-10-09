@@ -1,0 +1,58 @@
+# kube-prometheus-stack(Prometheus Operator·Prometheus·Alertmanager·Grafana·kube-state-metrics)
+# TwinPilot의 ServiceMonitor·PrometheusRule·대시보드(infra/k8s/components/monitoring)를 읽는다.
+# Grafana 관리자 비밀번호 Secret을 먼저 만든다:
+#   kubectl create namespace monitoring
+#   kubectl -n monitoring create secret generic grafana-admin --from-literal=admin-user=admin --from-literal=admin-password=<비밀번호>
+# 경보 수신처(Slack·메일 등)는 alertmanager.config에 조직 값으로 넣는다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-monitoring
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 91.0.0
+    helm:
+      releaseName: kube-prometheus-stack
+      valuesObject:
+        # NKS 관리형 컨트롤 플레인은 수집할 수 없다.
+        kubeControllerManager: {enabled: false}
+        kubeScheduler: {enabled: false}
+        kubeEtcd: {enabled: false}
+        kubeProxy: {enabled: false}
+        prometheus:
+          prometheusSpec:
+            # release 레이블이 없어도 모든 네임스페이스의 ServiceMonitor·PrometheusRule을 읽는다.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            retention: 15d
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: nks-block-storage
+                  accessModes: ["ReadWriteOnce"]
+                  resources: {requests: {storage: 50Gi}}
+        grafana:
+          admin:
+            existingSecret: grafana-admin
+            userKey: admin-user
+            passwordKey: admin-password
+          sidecar:
+            dashboards:
+              searchNamespace: ALL
+              folderAnnotation: grafana_folder
+              provider:
+                foldersFromFilesStructure: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true      # CRD가 커서 클라이언트 측 apply의 annotation 한도를 넘는다

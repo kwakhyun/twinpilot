@@ -26,11 +26,21 @@ spec:
         app.kubernetes.io/name: postgis
     spec:
       serviceAccountName: twinpilot
+      terminationGracePeriodSeconds: 60
+      # 이미지의 postgres 사용자(uid·gid 999)로 바로 실행한다. 데이터 볼륨은 fsGroup으로 쓰기 권한을 준다.
       securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
         fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgis
           image: postgis/postgis:16-3.5
+          # 커넥션 예산: twin-api(최대 6×20) + keycloak(2×20) + ai-agent(최대 4×10) + 백업·부트스트랩 여유
+          args: ["-c", "max_connections=250", "-c", "shared_buffers=512MB", "-c", "effective_cache_size=1GB"]
           ports:
             - name: postgres
               containerPort: 5432
@@ -65,9 +75,30 @@ spec:
               memory: 512Mi
             limits:
               memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        # 병렬 쿼리용 동적 공유 메모리(기본 64Mi로는 부족할 수 있다)
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
   volumeClaimTemplates:
     - metadata:
         name: data

@@ -1,33 +1,41 @@
 # NCP Ncloud Kubernetes Service(NKS) 운영 오버레이
 #
-# 사전 준비(README의 'NCP 배포' 참고)
-#   1) Container Registry 이미지 푸시: <registry>.kr.ncr.ntruss.com/twin-api:0.1.0 …
+# 사전 준비(docs/runbooks/ncp-deploy.md 참고)
+#   1) Container Registry에 이미지 5종 푸시: <registry>.kr.ncr.ntruss.com/{twin-api,mcp-server,ai-agent,frontend,keycloak}:0.2.0
+#      아래 images의 newName을 실제 레지스트리 주소로 바꾼다.
 #   2) 레지스트리 인증 Secret:
 #        kubectl -n twinpilot create secret docker-registry ncr-cred \
 #          --docker-server=<registry>.kr.ncr.ntruss.com --docker-username=<ACCESS_KEY> --docker-password=<SECRET_KEY>
 #   3) 앱 Secret(키 목록은 secrets.env.example):
 #        kubectl -n twinpilot create secret generic twinpilot-secrets --from-env-file=secrets.env
-#   4) Certificate Manager 인증서 번호를 ingress-patch.yaml에 넣는다.
-#   kubectl apply -k infra/k8s/overlays/ncp
+#   4) configmap-patch.yaml의 PUBLIC_HOST와 ingress-patch.yaml의 인증서 번호를 넣는다.
+#   5) 모니터링 컴포넌트는 kube-prometheus-stack CRD가 있어야 한다(infra/argocd/platform-monitoring.yaml).
+#   kubectl apply -k infra/k8s/overlays/ncp   (또는 Argo CD: infra/argocd/)
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
   - hpa.yaml
   - pdb.yaml
+components:
+  - ../../components/backup
+  - ../../components/monitoring
 images:
   - name: twinpilot/twin-api
     newName: twinpilot.kr.ncr.ntruss.com/twin-api
-    newTag: 0.1.0
+    newTag: 0.2.0
   - name: twinpilot/mcp-server
     newName: twinpilot.kr.ncr.ntruss.com/mcp-server
-    newTag: 0.1.0
+    newTag: 0.2.0
   - name: twinpilot/ai-agent
     newName: twinpilot.kr.ncr.ntruss.com/ai-agent
-    newTag: 0.1.0
+    newTag: 0.2.0
   - name: twinpilot/frontend
     newName: twinpilot.kr.ncr.ntruss.com/frontend
-    newTag: 0.1.0
+    newTag: 0.2.0
+  - name: twinpilot/keycloak
+    newName: twinpilot.kr.ncr.ntruss.com/keycloak
+    newTag: 0.2.0
 replicas:
   - name: twin-api
     count: 2
@@ -36,6 +44,8 @@ replicas:
   - name: ai-agent
     count: 2
   - name: frontend
+    count: 2
+  - name: keycloak
     count: 2
 patches:
   - path: configmap-patch.yaml
@@ -66,6 +76,11 @@ patches:
       - op: replace
         path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
         value: 50Gi
+      - op: add
+        path: /metadata/annotations
+        value:
+          # Argo CD가 정리(prune)·삭제 대상으로 삼지 않는다(데이터 보호).
+          argocd.argoproj.io/sync-options: Prune=false,Delete=false
   # 운영 규모에 맞춘 리소스
   - target:
       kind: Deployment
@@ -76,3 +91,28 @@ patches:
         value:
           requests: {cpu: "1", memory: 1Gi}
           limits: {memory: 2Gi}
+# PUBLIC_HOST 하나로 공개 주소를 맞춘다("https://<host>/..."를 "/"로 나눈 세 번째 조각이 호스트다).
+replacements:
+  - source:
+      kind: ConfigMap
+      name: twinpilot-config
+      fieldPath: data.PUBLIC_HOST
+    targets:
+      - select:
+          kind: Ingress
+          name: twinpilot
+        fieldPaths:
+          - spec.rules.0.host
+      - select:
+          kind: ConfigMap
+          name: twinpilot-config
+        fieldPaths:
+          - data.TWINPILOT_WEB_URL
+          - data.OIDC_ISSUER_URI
+          - data.OIDC_ISSUER
+          - data.OIDC_AUTHORITY
+          - data.KC_HOSTNAME
+          - data.CORS_ALLOWED_ORIGINS
+        options:
+          delimiter: /
+          index: 2
