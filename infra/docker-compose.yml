@@ -25,6 +25,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./k8s/base/postgis/init-databases.sql:/docker-entrypoint-initdb.d/10-init-databases.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"   # 로컬 개발(mvn spring-boot:run)용. 루프백에만 연다
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U twin -d twinpilot"]
       interval: 5s
