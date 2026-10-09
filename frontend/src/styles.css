@@ -438,6 +438,7 @@ legend {
   gap: 8px;
 }
 
+h2.sub,
 h3.sub {
   font-size: 13px;
   margin: 16px 0 6px;

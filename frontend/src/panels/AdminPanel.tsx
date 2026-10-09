@@ -102,7 +102,7 @@ export function AdminPanel() {
   return (
     <div className="admin">
       <section aria-label="데이터 적재">
-        <h3 className="sub">GeoJSON 데이터 적재</h3>
+        <h2 className="sub">GeoJSON 데이터 적재</h2>
         <form
           className="form-grid"
           onSubmit={(e) => {
@@ -182,7 +182,7 @@ export function AdminPanel() {
       </section>
 
       <section aria-label="최근 적재">
-        <h3 className="sub">최근 적재 Job</h3>
+        <h2 className="sub">최근 적재 Job</h2>
         <table className="data-table">
           <thead>
             <tr>
@@ -209,7 +209,7 @@ export function AdminPanel() {
       </section>
 
       <section aria-label="감사 로그">
-        <h3 className="sub">감사 로그</h3>
+        <h2 className="sub">감사 로그</h2>
         <label className="inline">
           작업
           <select value={auditAction} onChange={(e) => setAuditAction(e.target.value)}>

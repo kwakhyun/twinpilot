@@ -253,7 +253,7 @@ export function AnalysisPanel() {
             </tbody>
           </table>
 
-          <h3 className="sub">우선 조치 대상 (위험도순)</h3>
+          <h2 className="sub">우선 조치 대상 (위험도순)</h2>
           <ol className="item-list">
             {coverage.topUncovered.map((b) => (
               <li key={b.id}>
@@ -278,7 +278,7 @@ export function AnalysisPanel() {
 
       {facilityType !== "FIRE_STATION" && (
         <section className="recommend" aria-label="최적 입지 추천">
-          <h3 className="sub">최적 입지 추천 (MCLP)</h3>
+          <h2 className="sub">최적 입지 추천 (MCLP)</h2>
           <div className="btn-row">
             <label className="inline">
               추가 설치 수

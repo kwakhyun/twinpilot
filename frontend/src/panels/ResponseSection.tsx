@@ -39,7 +39,7 @@ export function ResponseSection() {
   const s = result?.summary;
   return (
     <section className="response" aria-label="출동 시간 분석">
-      <h3 className="sub">소방서 출동 시간 (도로망)</h3>
+      <h2 className="sub">소방서 출동 시간 (도로망)</h2>
       <div className="form-grid">
         <label>
           행정동
@@ -120,7 +120,7 @@ export function ResponseSection() {
           </table>
           {result.slowest.length > 0 && (
             <>
-              <h4 className="sub">목표 초과 · 위험도 높은 순</h4>
+              <h3 className="sub">목표 초과 · 위험도 높은 순</h3>
               <ol className="item-list">
                 {result.slowest.map((b) => (
                   <li key={b.id}>
