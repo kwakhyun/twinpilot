@@ -84,6 +84,15 @@ public class JobQueue {
         return repository.find(id).orElseThrow(() -> new NoSuchElementException("Job을 찾을 수 없습니다: " + id));
     }
 
+    /** 만든 사람이나 ADMIN만 본다. 다른 사용자의 Job은 있는지도 알리지 않는다(404). */
+    public JobView get(UUID id, Actor actor) {
+        String owner = repository.owner(id).orElse(null);
+        if (owner == null || (!owner.equals(actor.subject()) && !actor.has(Role.ADMIN))) {
+            throw new NoSuchElementException("Job을 찾을 수 없습니다: " + id);
+        }
+        return get(id);
+    }
+
     public List<JobView> list(Actor actor, boolean all, String type, int limit) {
         if (all && !actor.has(Role.ADMIN)) {
             throw new AccessDeniedException("전체 Job 목록은 ADMIN 역할이 필요합니다.");
@@ -106,7 +115,7 @@ public class JobQueue {
         return get(id);
     }
 
-    public SseEmitter subscribe(UUID id) {
-        return events.subscribe(get(id));
+    public SseEmitter subscribe(UUID id, Actor actor) {
+        return events.subscribe(get(id, actor));
     }
 }

@@ -89,7 +89,7 @@ public class AnalysisController {
 
     @GetMapping("/jobs/{id}")
     public JobView job(@PathVariable UUID id) {
-        return jobs.get(id);
+        return jobs.get(id, currentUser.get());
     }
 
     /** 대기 중이면 즉시 취소, 실행 중이면 다음 진행 단계에서 멈춘다. */
@@ -101,6 +101,6 @@ public class AnalysisController {
     /** 진행률 SSE: progress, done, failed, cancelled */
     @GetMapping(path = "/jobs/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter jobEvents(@PathVariable UUID id) {
-        return jobs.subscribe(id);
+        return jobs.subscribe(id, currentUser.get());
     }
 }

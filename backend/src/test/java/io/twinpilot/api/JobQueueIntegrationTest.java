@@ -98,6 +98,10 @@ class JobQueueIntegrationTest extends IntegrationTestBase {
         UUID id = insertQueued("owner-sub", "owner", Duration.ofMinutes(10));
         // 다른 분석가는 취소할 수 없다.
         assertThat(status(as("someone-else", "ANALYST"), "DELETE", "/api/v1/analysis/jobs/" + id, null)).isEqualTo(403);
+        // 다른 사용자는 Job과 진행 이벤트를 볼 수도 없다(있는지도 알리지 않는다).
+        assertThat(status(as("someone-else", "ANALYST"), "GET", "/api/v1/analysis/jobs/" + id, null)).isEqualTo(404);
+        assertThat(status(as("someone-else", "ANALYST"), "GET", "/api/v1/analysis/jobs/" + id + "/events", null))
+                .isEqualTo(404);
         JsonNode cancelled = mapper.readTree(http.delete().uri("/api/v1/analysis/jobs/" + id).retrieve().body(String.class));
         assertThat(cancelled.path("status").asString()).isEqualTo("CANCELLED");
         assertThat(readSse("/api/v1/analysis/jobs/" + id + "/events", IDP.token("admin", "ADMIN"), "cancelled",
