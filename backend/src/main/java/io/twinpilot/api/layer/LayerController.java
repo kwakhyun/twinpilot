@@ -13,6 +13,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,14 +40,16 @@ public class LayerController {
     private final AuditService audit;
     private final CurrentUser currentUser;
     private final DataChangeEvents changes;
+    private final TransactionTemplate tx;
 
     public LayerController(JdbcClient jdbc, TwinPilotProperties props, AuditService audit, CurrentUser currentUser,
-                           DataChangeEvents changes) {
+                           DataChangeEvents changes, TransactionTemplate tx) {
         this.jdbc = jdbc;
         this.standards = props.standards();
         this.audit = audit;
         this.currentUser = currentUser;
         this.changes = changes;
+        this.tx = tx;
     }
 
     @GetMapping("/regions")
@@ -119,6 +122,13 @@ public class LayerController {
     /** 추천 결과를 '계획(PLANNED)' 시설로 배치해 what-if 커버리지를 비교할 수 있게 한다. */
     @PostMapping("/facilities")
     public ResponseEntity<FacilityCreated> createPlanned(@Valid @RequestBody PlannedFacilityRequest req) {
+        // 시설과 감사 기록을 한 트랜잭션으로 남긴다.
+        FacilityCreated created = tx.execute(status -> insertPlanned(req));
+        changes.changed("facility");
+        return ResponseEntity.created(URI.create("/api/v1/facilities/" + created.id())).body(created);
+    }
+
+    private FacilityCreated insertPlanned(PlannedFacilityRequest req) {
         FacilityCreated created = jdbc.sql("""
                         INSERT INTO facility (type, subtype, name, status, installed_year, geom)
                         VALUES (:type, :subtype, :name, 'PLANNED', NULL, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326))
@@ -134,25 +144,29 @@ public class LayerController {
                 .single();
         audit.record(currentUser.get(), "FACILITY_PLAN", "facility", Integer.toString(created.id()),
                 Map.of("type", created.type(), "lon", created.lon(), "lat", created.lat()));
-        changes.changed("facility");
-        return ResponseEntity.created(URI.create("/api/v1/facilities/" + created.id())).body(created);
+        return created;
     }
 
     @DeleteMapping("/facilities/{id}")
     public ResponseEntity<Void> deletePlanned(@PathVariable int id) {
-        int deleted = jdbc.sql("DELETE FROM facility WHERE id = :id AND status = 'PLANNED'").param("id", id).update();
-        if (deleted == 0) {
-            throw new IllegalStateException("계획(PLANNED) 상태 시설만 삭제할 수 있습니다: " + id);
-        }
-        audit.record(currentUser.get(), "FACILITY_PLAN_DELETE", "facility", Integer.toString(id), Map.of());
+        tx.executeWithoutResult(status -> {
+            int deleted = jdbc.sql("DELETE FROM facility WHERE id = :id AND status = 'PLANNED'").param("id", id).update();
+            if (deleted == 0) {
+                throw new IllegalStateException("계획(PLANNED) 상태 시설만 삭제할 수 있습니다: " + id);
+            }
+            audit.record(currentUser.get(), "FACILITY_PLAN_DELETE", "facility", Integer.toString(id), Map.of());
+        });
         changes.changed("facility");
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/facilities/planned")
     public Map<String, Integer> clearPlanned() {
-        int deleted = jdbc.sql("DELETE FROM facility WHERE status = 'PLANNED'").update();
-        audit.record(currentUser.get(), "FACILITY_PLAN_CLEAR", "facility", null, Map.of("deleted", deleted));
+        int deleted = tx.execute(status -> {
+            int n = jdbc.sql("DELETE FROM facility WHERE status = 'PLANNED'").update();
+            audit.record(currentUser.get(), "FACILITY_PLAN_CLEAR", "facility", null, Map.of("deleted", n));
+            return n;
+        });
         changes.changed("facility");
         return Map.of("deleted", deleted);
     }

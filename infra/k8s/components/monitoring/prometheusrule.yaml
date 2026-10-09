@@ -66,6 +66,11 @@ spec:
           labels: { severity: critical }
           annotations:
             summary: "DB 커넥션 대기 발생(풀 고갈)"
+        - alert: AuditWriteFailures
+          expr: sum(increase(twinpilot_audit_write_failures_total[15m])) > 0
+          labels: { severity: warning }
+          annotations:
+            summary: "감사 로그를 DB에 쓰지 못해 로그로 대신 보존함(로그에서 '감사 로그 DB 기록 실패' 확인)"
     - name: twinpilot-k8s
       rules:
         - alert: TwinPilotTargetDown

@@ -166,13 +166,14 @@ public class GeoJsonImportService implements JobHandler {
             Object riskResult = null;
             if (!dryRun && valid > 0) {
                 progress.report(65, "대상 테이블 병합(%s)".formatted(mode));
+                // 병합과 감사 기록을 한 트랜잭션으로 남긴다.
                 merged = tx.execute(status -> {
                     jdbc.sql("SET LOCAL statement_timeout = '30min'").update();
-                    return merge(layer, jobId, source, mode);
+                    int[] m = merge(layer, jobId, source, mode);
+                    audit.record(actor, "DATA_IMPORT", layer.name(), source,
+                            Map.of("mode", mode, "inserted", m[0], "updated", m[1], "removed", m[2], "invalid", invalid));
+                    return m;
                 });
-                audit.record(actor, "DATA_IMPORT", layer.name(), source,
-                        Map.of("mode", mode, "inserted", merged[0], "updated", merged[1], "removed", merged[2],
-                                "invalid", invalid));
                 changes.changed("import");
                 if (refresh) {
                     riskResult = risk.refreshAll(scaled(progress, 75, 98));

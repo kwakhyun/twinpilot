@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import tools.jackson.databind.ObjectMapper;
@@ -29,15 +30,17 @@ public class JobQueue {
     private final ObjectMapper mapper;
     private final TwinPilotProperties.Jobs config;
     private final AuditService audit;
+    private final TransactionTemplate tx;
 
     public JobQueue(JobRepository repository, JobEvents events, List<JobHandler> handlers, ObjectMapper mapper,
-                    TwinPilotProperties props, AuditService audit) {
+                    TwinPilotProperties props, AuditService audit, TransactionTemplate tx) {
         this.repository = repository;
         this.events = events;
         this.handlers = handlers.stream().collect(Collectors.toMap(JobHandler::type, Function.identity()));
         this.mapper = mapper;
         this.config = props.jobs();
         this.audit = audit;
+        this.tx = tx;
     }
 
     public JobHandler handler(String type) {
@@ -70,12 +73,16 @@ public class JobQueue {
         }
         UUID id = UUID.randomUUID();
         try {
-            repository.insert(id, type, mapper.writeValueAsString(params), actor, idempotencyKey, config.maxAttempts());
+            // Job과 감사 기록을 한 트랜잭션으로 남긴다.
+            tx.executeWithoutResult(status -> {
+                repository.insert(id, type, mapper.writeValueAsString(params), actor, idempotencyKey,
+                        config.maxAttempts());
+                audit.record(actor, "JOB_SUBMIT", "job", id.toString(), Map.of("type", type, "params", params));
+            });
         } catch (DuplicateKeyException e) {
             // 같은 키로 동시에 들어온 요청: 먼저 저장된 Job을 돌려준다.
             return repository.findByIdempotencyKey(actor.subject(), idempotencyKey).orElseThrow(() -> e);
         }
-        audit.record(actor, "JOB_SUBMIT", "job", id.toString(), Map.of("type", type, "params", params));
         events.queued();
         return get(id);
     }
@@ -106,9 +113,12 @@ public class JobQueue {
         if (!owner.equals(actor.subject()) && !actor.has(Role.ADMIN)) {
             throw new AccessDeniedException("다른 사용자의 Job은 취소할 수 없습니다.");
         }
-        String status = repository.cancel(id)
-                .orElseThrow(() -> new IllegalStateException("이미 끝난 Job입니다: " + id));
-        audit.record(actor, "JOB_CANCEL", "job", id.toString(), Map.of());
+        String status = tx.execute(s -> {
+            String result = repository.cancel(id)
+                    .orElseThrow(() -> new IllegalStateException("이미 끝난 Job입니다: " + id));
+            audit.record(actor, "JOB_CANCEL", "job", id.toString(), Map.of());
+            return result;
+        });
         if (JobStatus.valueOf(status).terminal()) {
             events.terminal(id);
         }

@@ -10,6 +10,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Positive;
 
 import org.springframework.core.io.InputStreamResource;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -37,11 +38,14 @@ public class ModelAssetController {
     private final ModelAssetService service;
     private final AuditService audit;
     private final CurrentUser currentUser;
+    private final TransactionTemplate tx;
 
-    public ModelAssetController(ModelAssetService service, AuditService audit, CurrentUser currentUser) {
+    public ModelAssetController(ModelAssetService service, AuditService audit, CurrentUser currentUser,
+                                TransactionTemplate tx) {
         this.service = service;
         this.audit = audit;
         this.currentUser = currentUser;
+        this.tx = tx;
     }
 
     /** 업로드 후 즉시 202. 검증·메타 추출은 비동기로 진행되며 status로 확인한다. */
@@ -95,11 +99,15 @@ public class ModelAssetController {
 
     @PutMapping("/{id}/placement")
     public ModelAsset place(@PathVariable UUID id, @Valid @RequestBody PlacementRequest req) {
-        ModelAsset placed = service.place(id, new Placement(req.lon(), req.lat(), req.heightM(), req.headingDeg(),
-                req.scale() == null ? 1 : req.scale()));
-        audit.record(currentUser.get(), "MODEL_PLACE", "model", id.toString(),
-                java.util.Map.of("lon", req.lon(), "lat", req.lat(), "headingDeg", req.headingDeg()));
-        return placed;
+        // 배치 변경과 감사 기록을 한 트랜잭션으로 남긴다. 업로드·삭제는 파일 저장소가 끼어 있어 트랜잭션으로 묶지 않고,
+        // 감사 기록 실패 시 AuditService가 내용을 로그로 보존한다.
+        return tx.execute(status -> {
+            ModelAsset placed = service.place(id, new Placement(req.lon(), req.lat(), req.heightM(), req.headingDeg(),
+                    req.scale() == null ? 1 : req.scale()));
+            audit.record(currentUser.get(), "MODEL_PLACE", "model", id.toString(),
+                    java.util.Map.of("lon", req.lon(), "lat", req.lat(), "headingDeg", req.headingDeg()));
+            return placed;
+        });
     }
 
     @DeleteMapping("/{id}")

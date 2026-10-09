@@ -18,4 +18,5 @@ docker run --rm --network "${COMPOSE_NETWORK:-twinpilot_default}" \
   -e API_BASE="$api_base" -e PUBLIC_BASE="${PUBLIC_BASE:-http://localhost:8088}" -e AUTH_BASE=http://frontend:8080 \
   -e DEMO_PASSWORD="${DEMO_PASSWORD:-twinpilot-demo}" \
   ${STAGES:+-e STAGES="$STAGES"} ${JOB_RATE:+-e JOB_RATE="$JOB_RATE"} ${JOB_DURATION:+-e JOB_DURATION="$JOB_DURATION"} \
+  ${VARY_PARAMS:+-e VARY_PARAMS="$VARY_PARAMS"} \
   grafana/k6:2.3.0 run --summary-export "/results/${script%.js}-$(date +%Y%m%d-%H%M%S).json" "/scripts/$script"

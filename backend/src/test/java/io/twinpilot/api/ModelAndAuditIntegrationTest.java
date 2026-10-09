@@ -1,6 +1,7 @@
 package io.twinpilot.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 import java.nio.charset.StandardCharsets;
@@ -10,14 +11,20 @@ import java.time.Duration;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.MultipartBodyBuilder;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestClient;
 
 import tools.jackson.databind.JsonNode;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.twinpilot.api.audit.AuditService;
+import io.twinpilot.api.security.Actor;
 import io.twinpilot.api.support.IntegrationTestBase;
 
 /** 3D 모델 업로드(작업 큐 처리)와 감사 로그. */
@@ -96,5 +103,36 @@ class ModelAndAuditIntegrationTest extends IntegrationTestBase {
                 return filename;
             }
         };
+    }
+
+    @Autowired
+    TransactionTemplate tx;
+    @Autowired
+    AuditService audit;
+    @Autowired
+    JdbcClient jdbc;
+    @Autowired
+    MeterRegistry meters;
+
+    @Test
+    void auditRecordIsAtomicWithTheChangeOrPreservedInLogs() {
+        Actor actor = new Actor("audit-test-sub", "audit-test", java.util.Set.of("ADMIN"), false);
+        String tooLong = "X".repeat(65);   // action 컬럼(varchar 64)을 넘겨 감사 기록 실패를 만든다
+
+        // 트랜잭션 안: 감사 기록이 실패하면 변경도 롤백된다.
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+            jdbc.sql("""
+                    INSERT INTO facility (type, subtype, name, status, geom)
+                    VALUES ('HYDRANT', 'TEST', 'audit-atomic', 'PLANNED', ST_SetSRID(ST_MakePoint(129.05, 35.16), 4326))""")
+                    .update();
+            audit.record(actor, tooLong, "facility", "x", Map.of());
+        })).isInstanceOf(RuntimeException.class);
+        assertThat(jdbc.sql("SELECT count(*) FROM facility WHERE name = 'audit-atomic'").query(Long.class).single())
+                .isZero();
+
+        // 트랜잭션 밖(파일 저장 뒤 등): 본 작업을 막지 않고 실패 수를 센다(내용은 로그로 보존).
+        double before = meters.counter("twinpilot.audit.write.failures").count();
+        audit.record(actor, tooLong, "model", "y", Map.of());
+        assertThat(meters.counter("twinpilot.audit.write.failures").count()).isEqualTo(before + 1);
     }
 }

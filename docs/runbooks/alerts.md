@@ -83,6 +83,14 @@ kubectl -n twinpilot exec postgis-0 -- psql -U twin -d twinpilot -c \
    mcp-server 로그에 401·토큰 교환 실패가 보이면: `MCP_CLIENT_SECRET`·`AGENT_CLIENT_SECRET`이 Keycloak 값과 같은지, Keycloak이 정상인지 본다.
 3. 특정 도구만 실패하면 그 도구가 부르는 twin-api 엔드포인트 경보를 함께 본다.
 
+## AuditWriteFailures (warning)
+
+감사 기록을 DB에 쓰지 못해 로그로 대신 남겼다. DB 트랜잭션으로 묶은 작업(Job 제출·취소, 계획 시설, 모델 배치, 데이터 적재)은
+감사 기록이 실패하면 작업 자체가 롤백되므로 이 경보에 해당하지 않는다. 파일 저장소가 끼는 모델 업로드·삭제만 해당한다.
+
+1. twin-api 로그에서 `감사 로그 DB 기록 실패(로그로 대신 보존)`를 찾는다. 행위자·작업·대상·세부 내용이 그대로 있다.
+2. 원인(DB 과부하·연결 실패)을 해소한 뒤, 필요하면 로그 내용을 `audit_log`에 수동으로 옮긴다.
+
 ## TwinPilotTargetDown (critical)
 
 Prometheus가 5분 넘게 대상을 수집하지 못했다. 파드가 죽었거나 NetworkPolicy가 monitoring 네임스페이스를 막고 있다.

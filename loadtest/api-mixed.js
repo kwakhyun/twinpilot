@@ -2,6 +2,7 @@
 //   API_BASE   : 요청 대상(twin-api 직접 http://twin-api:8080, nginx 경유 http://frontend:8080)
 //   STAGES     : browse 도착률 단계 "지속시간:초당요청,..."(기본 "30s:10,1m:10,30s:30,1m:30,30s:60,1m:60,20s:0")
 //   JOB_RATE   : 분당 Job 제출 수(기본 6)
+//   VARY_PARAMS: "1"이면 분석 요청 조건(반경·목표 시간)을 매번 바꿔 서버 캐시를 거치지 않는 비용을 잰다
 // nginx는 IP당 요청 한도(30r/s)를 두므로 용량 측정은 twin-api 직접 호출로 한다(edge-limits.js가 한도 동작을 따로 본다).
 import http from "k6/http";
 import { check, sleep } from "k6";
@@ -75,6 +76,8 @@ export function setup() {
 }
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const VARY = __ENV.VARY_PARAMS === "1";
+const between = (lo, hi) => Math.round((lo + Math.random() * (hi - lo)) * 10) / 10;
 const json = (headers) => ({ ...headers, "Content-Type": "application/json" });
 
 // 한 반복 = 사용자 한 동작. 가중치는 화면 사용 빈도(상세 조회가 가장 잦고, 전체 레이어는 첫 화면에서만 받는다).
@@ -88,10 +91,11 @@ const ACTIONS = [
   [5, "buildings_geojson", (p) => http.get(`${API}/buildings`, p)],
   [5, "roads", (p) => http.get(`${API}/roads`, p)],
   [10, "coverage", (p) => http.post(`${API}/analysis/coverage`,
-    JSON.stringify({ facilityType: pick(["HYDRANT", "AED", "FIRE_STATION"]), topUncovered: 10 }),
+    JSON.stringify({ facilityType: pick(["HYDRANT", "AED", "FIRE_STATION"]), topUncovered: 10,
+      ...(VARY ? { radiusM: between(50, 400) } : {}) }),
     { ...p, headers: json(p.headers) })],
   [5, "response_time", (p) => http.post(`${API}/analysis/response`,
-    JSON.stringify({ targetMin: 7, top: 10 }), { ...p, headers: json(p.headers) })],
+    JSON.stringify({ targetMin: VARY ? between(3, 10) : 7, top: 10 }), { ...p, headers: json(p.headers) })],
 ];
 const TOTAL = ACTIONS.reduce((s, a) => s + a[0], 0);
 
