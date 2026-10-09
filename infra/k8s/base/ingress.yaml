@@ -1,0 +1,18 @@
+# 외부 진입점은 frontend(nginx) 하나다. nginx가 /api → twin-api, /agent → ai-agent로 프록시한다.
+# ingressClassName은 오버레이에서 지정한다(local: nginx, ncp: alb).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: twinpilot
+spec:
+  rules:
+    - host: twinpilot.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  name: http

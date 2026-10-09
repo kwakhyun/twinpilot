@@ -1,0 +1,7 @@
+# cp terraform.tfvars.example terraform.tfvars  (인증키는 TF_VAR_access_key / TF_VAR_secret_key 환경 변수로 전달)
+name          = "twinpilot"
+zone          = "KR-1"
+nks_version   = "1.33"
+node_count    = 2
+node_max_count = 4
+models_bucket = "twinpilot-models-<unique-suffix>"

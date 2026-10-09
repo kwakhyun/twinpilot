@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: twin-api
+spec:
+  selector:
+    app.kubernetes.io/name: twin-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: twin-api
+spec:
+  # 기본 1개. 운영(overlays/ncp)은 Object Storage(S3)로 모델 저장소를 공유하고 2개 이상 + HPA로 확장한다.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: twin-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: twin-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /actuator/prometheus
+    spec:
+      serviceAccountName: twinpilot
+      securityContext:
+        runAsNonRoot: true
+        # 앱 사용자(uid 10001, gid 999)가 모델 저장소 emptyDir에 쓸 수 있도록 한다.
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 40
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: twin-api
+      containers:
+        - name: twin-api
+          image: twinpilot/twin-api
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: twinpilot-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: twinpilot-secrets
+                  key: DB_PASSWORD
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: twinpilot-secrets
+                  key: S3_ACCESS_KEY
+                  optional: true
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: twinpilot-secrets
+                  key: S3_SECRET_KEY
+                  optional: true
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+          lifecycle:
+            # 엔드포인트 제거가 전파될 시간을 준 뒤 graceful shutdown을 시작한다.
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 768Mi
+            limits:
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: storage
+              mountPath: /data/storage
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: storage
+          emptyDir: {}

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: twinpilot-config
+data:
+  # 3D 모델은 NCP Object Storage(S3 호환)에 저장해 twin-api 레플리카가 공유한다.
+  STORAGE_TYPE: s3
+  S3_ENDPOINT: https://kr.object.ncloudstorage.com
+  S3_REGION: kr-standard
+  S3_BUCKET: twinpilot-models
+  # 데모 단계에서는 합성 데이터를 적재한다. 실제 데이터 적재 후 "false"로 바꾼다.
+  SEED_ENABLED: "true"

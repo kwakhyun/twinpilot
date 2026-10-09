@@ -1,0 +1,25 @@
+# NCP ALB Ingress Controller
+#  - ingressClassName: alb
+#  - ssl-certificate-no: Certificate Manager 인증서 번호(Resource Manager nrn에서 확인)
+#  - SSE(센서·Job·코파일럿 스트림)를 쓰므로 ALB 유휴 타임아웃을 콘솔에서 확인·조정한다.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: twinpilot
+  annotations:
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-certificate-no: "REPLACE_WITH_CERTIFICATE_NO"
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+spec:
+  ingressClassName: alb
+  rules:
+    - host: twinpilot.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  name: http

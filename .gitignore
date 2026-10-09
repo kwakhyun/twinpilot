@@ -1,0 +1,16 @@
+# build outputs
+backend/target/
+backend/storage/
+frontend/node_modules/
+frontend/dist/
+**/__pycache__/
+**/*.egg-info/
+.venv/
+.pytest_cache/
+# secrets
+infra/k8s/overlays/ncp/secrets.env
+infra/terraform/ncp/terraform.tfvars
+infra/terraform/ncp/.terraform/
+*.tfstate*
+e2e/node_modules/
+e2e/screenshots/

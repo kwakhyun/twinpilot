@@ -1,0 +1,13 @@
+{
+  "name": "twinpilot-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ui": "node shot.mjs",
+    "copilot": "node copilot.mjs",
+    "models": "node models.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.64.0"
+  }
+}

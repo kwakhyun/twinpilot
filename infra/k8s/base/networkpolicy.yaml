@@ -1,0 +1,98 @@
+# 네임스페이스 기본 차단 후 필요한 흐름만 허용한다(인그레스 방향). NKS는 Cilium CNI로 정책을 적용한다.
+#   외부 → frontend → twin-api → postgis
+#                   → ai-agent → mcp-server → twin-api
+#                     ai-agent → postgis(대화 상태 체크포인트, 선택)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-from-anywhere
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: twin-api-from-frontend-and-mcp
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: twin-api
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: frontend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mcp-server
+      ports:
+        - port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-server-from-agent
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-server
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-agent
+      ports:
+        - port: 8090
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-agent-from-frontend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-agent
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: frontend
+      ports:
+        - port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgis-from-api-and-agent
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgis
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: twin-api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-agent
+      ports:
+        - port: 5432

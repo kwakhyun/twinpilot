@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: twinpilot-config
+data:
+  # twin-api
+  DB_URL: jdbc:postgresql://postgis:5432/twinpilot
+  DB_USER: twin
+  SEED_ENABLED: "true"
+  STORAGE_TYPE: local
+  STORAGE_LOCAL_ROOT: /data/storage
+  SENSOR_SIMULATE: "true"
+  # mcp-server
+  TWIN_API_URL: http://twin-api:8080
+  MCP_HOST: 0.0.0.0
+  MCP_PORT: "8090"
+  # ai-agent
+  MCP_URL: http://mcp-server:8090/mcp
+  AGENT_MODE: auto
+  LLM_MODEL: claude-opus-5-5
+  LLM_EFFORT: medium
+  # frontend(nginx 업스트림)
+  TWIN_API_UPSTREAM: twin-api:8080
+  AGENT_UPSTREAM: ai-agent:8000

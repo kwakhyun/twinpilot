@@ -1,0 +1,77 @@
+spring:
+  application:
+    name: twin-api
+  threads:
+    virtual:
+      enabled: true          # Java 21 가상 스레드로 요청·비동기 작업 처리
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/twinpilot}
+    username: ${DB_USER:twin}
+    password: ${DB_PASSWORD:twin}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      # PostGIS 함수 위주 질의는 JIT 컴파일 비용이 이득보다 크다(추천 질의 889ms → 188ms 측정).
+      connection-init-sql: SET jit = off
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+  mvc:
+    async:
+      request-timeout: 0     # SSE 연결은 emitter 단위 타임아웃으로 관리
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+  forward-headers-strategy: framework   # Ingress/nginx 뒤에서 X-Forwarded-Host·Proto 반영
+  compression:
+    enabled: true
+    mime-types: application/json,application/geo+json,application/problem+json
+    min-response-size: 2KB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+twinpilot:
+  seed:
+    enabled: ${SEED_ENABLED:true}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:4173,http://localhost:8088}
+  storage:
+    type: ${STORAGE_TYPE:local}           # local | s3 (NCP Object Storage)
+    local-root: ${STORAGE_LOCAL_ROOT:./storage}
+    s3:
+      endpoint: ${S3_ENDPOINT:https://kr.object.ncloudstorage.com}
+      region: ${S3_REGION:kr-standard}
+      bucket: ${S3_BUCKET:twinpilot-models}
+      access-key: ${S3_ACCESS_KEY:}
+      secret-key: ${S3_SECRET_KEY:}
+  standards:
+    hydrant-urban-m: 100        # 소방기본법 시행규칙 [별표 3]: 주거·상업·공업지역 수평거리 100m 이하
+    hydrant-other-m: 140        # 그 외 지역 140m 이하
+    aed-m: 300                  # 가정값(보행 약 4분)
+    response-target-min: 7      # 화재 골든타임
+    travel-speed-kmh: 30        # 도달시간 근사용 평균 주행속도
+    detour-factor: 1.3          # 직선거리 → 도로거리 근사 계수
+    ladder-reach-m: 45          # 사다리차 유효 높이 가정값
+    high-risk-threshold: 60
+  sensors:
+    simulate: ${SENSOR_SIMULATE:true}
+    interval-ms: 2000
+    persist-interval-ms: 10000
+    low-pressure-mpa: 0.15
