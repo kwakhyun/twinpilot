@@ -19,8 +19,12 @@ RUN --mount=type=secret,id=extra_ca,required=false \
 
 FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PATH=/opt/venv/bin:$PATH LANG=C.UTF-8
-RUN useradd -r -u 10001 app
 COPY --from=build /opt/venv /opt/venv
+# 실행에 필요 없는 pip(과 pip가 내장한 urllib3·msgpack 등)를 지워 취약점 노출면을 줄인다.
+RUN useradd -r -u 10001 app \
+ && rm -rf /usr/local/lib/python3.13/site-packages/pip /usr/local/lib/python3.13/site-packages/pip-*.dist-info \
+           /usr/local/lib/python3.13/ensurepip /usr/local/bin/pip* \
+           /opt/venv/lib/python3.13/site-packages/pip /opt/venv/lib/python3.13/site-packages/pip-*.dist-info /opt/venv/bin/pip*
 USER 10001
 ENV MCP_HOST=0.0.0.0 MCP_PORT=8090 TWIN_API_URL=http://twin-api:8080 FORWARDED_ALLOW_IPS=*
 EXPOSE 8090

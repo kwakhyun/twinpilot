@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -112,29 +113,45 @@ public class GeoJsonImportService implements JobHandler {
             srid = stage(params.path("storageKey").asString(), jobId, normalizer, requestedSrid, errors, sample, counts,
                     progress);
             progress.report(55, "좌표계 변환·유효성 보정");
-            int outOfBounds = jdbc.sql("""
-                            DELETE FROM import_staging WHERE job_id = :id
-                               AND NOT ST_Intersects(geom, ST_MakeEnvelope(124, 33, 132, 39.5, 4326))""")
-                    .param("id", jobId).update();
-            if (outOfBounds > 0) {
-                addError(errors, "국내 범위(경도 124~132, 위도 33~39.5) 밖 피처 %d개를 제외했습니다. 좌표계(srid=%d)가 맞는지 확인하세요."
-                        .formatted(outOfBounds, srid));
-            }
             int dim = switch (layer) {
                 case BUILDING, REGION -> 3;
                 case ROAD -> 2;
                 default -> 1;
             };
-            int fixed = jdbc.sql("""
-                            UPDATE import_staging SET geom = ST_CollectionExtract(ST_MakeValid(geom), :dim)
-                             WHERE job_id = :id AND NOT ST_IsValid(geom)""")
-                    .param("dim", dim).param("id", jobId).update();
-            int empty = jdbc.sql("DELETE FROM import_staging WHERE job_id = :id AND ST_IsEmpty(geom)")
-                    .param("id", jobId).update();
-            int duplicates = jdbc.sql("""
-                            DELETE FROM import_staging s USING import_staging t
-                             WHERE s.job_id = :id AND t.job_id = :id AND s.external_id = t.external_id AND s.seq < t.seq""")
-                    .param("id", jobId).update();
+            // 대용량 파일에서도 끝나도록 요청용 statement_timeout(30초) 대신 Job 범위 제한을 쓴다.
+            int[] post = tx.execute(status -> {
+                jdbc.sql("SET LOCAL statement_timeout = '30min'").update();
+                // 방금 채운 스테이징 통계를 갱신한다. 빈 테이블 통계로 계획하면 조인이 중첩 반복(O(n²))이 된다.
+                jdbc.sql("ANALYZE import_staging").update();
+                int oob = jdbc.sql("""
+                                DELETE FROM import_staging WHERE job_id = :id
+                                   AND NOT ST_Intersects(geom, ST_MakeEnvelope(124, 33, 132, 39.5, 4326))""")
+                        .param("id", jobId).update();
+                int fix = jdbc.sql("""
+                                UPDATE import_staging SET geom = ST_CollectionExtract(ST_MakeValid(geom), :dim)
+                                 WHERE job_id = :id AND NOT ST_IsValid(geom)""")
+                        .param("dim", dim).param("id", jobId).update();
+                int emp = jdbc.sql("DELETE FROM import_staging WHERE job_id = :id AND ST_IsEmpty(geom)")
+                        .param("id", jobId).update();
+                // 같은 외부 식별자는 파일에서 마지막 피처만 남긴다(창 함수로 O(n log n)).
+                int dup = jdbc.sql("""
+                                DELETE FROM import_staging s
+                                 USING (SELECT seq FROM (SELECT seq, row_number() OVER (PARTITION BY external_id ORDER BY seq DESC) AS rn
+                                                           FROM import_staging
+                                                          WHERE job_id = :id AND external_id IS NOT NULL) r
+                                         WHERE r.rn > 1) d
+                                 WHERE s.job_id = :id AND s.seq = d.seq""")
+                        .param("id", jobId).update();
+                return new int[]{oob, fix, emp, dup};
+            });
+            int outOfBounds = post[0];
+            int fixed = post[1];
+            int empty = post[2];
+            int duplicates = post[3];
+            if (outOfBounds > 0) {
+                addError(errors, "국내 범위(경도 124~132, 위도 33~39.5) 밖 피처 %d개를 제외했습니다. 좌표계(srid=%d)가 맞는지 확인하세요."
+                        .formatted(outOfBounds, srid));
+            }
             if (duplicates > 0) {
                 addError(errors, "파일 안에서 외부 식별자가 겹친 피처 %d개는 마지막 것만 반영합니다.".formatted(duplicates));
             }
@@ -319,18 +336,18 @@ public class GeoJsonImportService implements JobHandler {
                     jobId, source);
         };
         if ("REPLACE".equals(mode)) {
-            String missing = "source = :source AND (external_id IS NULL OR external_id NOT IN "
-                    + "(SELECT external_id FROM import_staging WHERE job_id = :id AND external_id IS NOT NULL))";
+            String missing = "source = :source AND (external_id IS NULL OR NOT EXISTS (SELECT 1 FROM import_staging st "
+                    + "WHERE st.job_id = :id AND st.external_id = %s.external_id))";
             counts[2] = switch (layer) {
-                case BUILDING -> jdbc.sql("DELETE FROM building WHERE " + missing)
+                case BUILDING -> jdbc.sql("DELETE FROM building WHERE " + missing.formatted("building"))
                         .param("source", source).param("id", jobId).update();
                 case HYDRANT, AED, FIRE_STATION -> jdbc.sql("UPDATE facility SET status = 'INACTIVE', updated_at = now()"
-                                + " WHERE type = :type AND status = 'ACTIVE' AND " + missing)
+                                + " WHERE type = :type AND status = 'ACTIVE' AND " + missing.formatted("facility"))
                         .param("type", layer.name()).param("source", source).param("id", jobId).update();
                 case ROAD -> jdbc.sql("""
                                 DELETE FROM road WHERE source = :source AND (external_id IS NULL
-                                   OR split_part(external_id, '#', 1) NOT IN
-                                      (SELECT external_id FROM import_staging WHERE job_id = :id AND external_id IS NOT NULL))""")
+                                   OR NOT EXISTS (SELECT 1 FROM import_staging st WHERE st.job_id = :id
+                                                     AND st.external_id = split_part(road.external_id, '#', 1)))""")
                         .param("source", source).param("id", jobId).update();
                 case REGION -> throw new IllegalArgumentException("행정구역은 REPLACE 모드를 지원하지 않습니다(건물 소속이 끊김).");
             };
@@ -350,6 +367,15 @@ public class GeoJsonImportService implements JobHandler {
                 .query(Boolean.class).list();
         int ins = (int) inserted.stream().filter(Boolean::booleanValue).count();
         return new int[]{ins, inserted.size() - ins, 0};
+    }
+
+    /** 중단된 시도가 남긴 스테이징 행 정리(정상 종료한 Job은 finally에서 바로 지운다). */
+    @Scheduled(cron = "0 23 * * * *")
+    public void purgeOrphanStaging() {
+        int n = jdbc.sql("DELETE FROM import_staging WHERE created_at < now() - interval '6 hours'").update();
+        if (n > 0) {
+            log.info("중단된 적재가 남긴 스테이징 행 {}건 삭제", n);
+        }
     }
 
     private static void addError(List<String> errors, String message) {

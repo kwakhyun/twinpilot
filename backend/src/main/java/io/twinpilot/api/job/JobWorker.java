@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.context.SmartLifecycle;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.dao.TransientDataAccessException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -182,6 +183,10 @@ public class JobWorker implements SmartLifecycle {
         } catch (LeaseLostException e) {
             log.warn("Job {} 임대 상실, 결과를 버립니다: {}", job.id(), e.getMessage());
             outcome = null;
+        } catch (QueryTimeoutException e) {
+            // 같은 입력이면 다시 해도 시간 초과가 나므로 재시도하지 않는다.
+            log.warn("Job {} 질의 시간 초과: {}", job.id(), e.getMostSpecificCause().getMessage());
+            outcome = finish(job, JobStatus.FAILED, null, "처리 시간 초과: " + e.getMostSpecificCause().getMessage());
         } catch (TransientDataAccessException | CannotGetJdbcConnectionException e) {
             if (job.attempts() < job.maxAttempts()
                     && repository.retryLater(job.id(), node, Duration.ofSeconds(10L * job.attempts()), e.getMessage())) {

@@ -1,31 +1,42 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from "vite";
+import { cpSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { viteStaticCopy } from "vite-plugin-static-copy";
 
-// Cesium의 Workers/Assets/ThirdParty를 정적 경로로 복사하고 CESIUM_BASE_URL로 알려준다.
+// Cesium의 Workers/Assets/ThirdParty 정적 파일 위치를 CESIUM_BASE_URL로 알려준다.
 // 코드는 @cesium/engine에서만 가져온다(위젯 패키지의 Knockout은 eval을 써서 엄격한 CSP와 맞지 않는다).
 const cesiumSource = "node_modules/cesium/Build/Cesium";
 const cesiumBaseUrl = "cesiumStatic";
+const cesiumDirs = ["ThirdParty", "Workers", "Assets"];
 
 const apiTarget = process.env.API_TARGET ?? "http://localhost:8080";
 const agentTarget = process.env.AGENT_TARGET ?? "http://localhost:8000";
 
-export default defineConfig({
+/** 빌드 결과(dist/cesiumStatic)에 Cesium 정적 파일을 복사한다. 개발 서버는 node_modules에서 바로 서빙한다. */
+function cesiumAssets(): Plugin {
+  let outDir = "dist";
+  return {
+    name: "twinpilot-cesium-assets",
+    apply: "build",
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    closeBundle() {
+      for (const dir of cesiumDirs) {
+        const src = resolve(cesiumSource, dir);
+        if (!existsSync(src)) throw new Error(`Cesium 정적 파일이 없습니다: ${src}`);
+        cpSync(src, resolve(outDir, cesiumBaseUrl, dir), { recursive: true });
+      }
+    },
+  };
+}
+
+export default defineConfig(({ command }) => ({
   define: {
-    CESIUM_BASE_URL: JSON.stringify(`/${cesiumBaseUrl}`),
+    CESIUM_BASE_URL: JSON.stringify(command === "serve" ? `/${cesiumSource}` : `/${cesiumBaseUrl}`),
   },
-  plugins: [
-    react(),
-    viteStaticCopy({
-      // v4는 원본 경로 구조를 유지하므로 node_modules/cesium/Build/Cesium(4단계)을 잘라낸다.
-      targets: ["ThirdParty", "Workers", "Assets"].map((dir) => ({
-        src: `${cesiumSource}/${dir}`,
-        dest: cesiumBaseUrl,
-        rename: { stripBase: 4 },
-      })),
-    }),
-  ],
+  plugins: [react(), cesiumAssets()],
   server: {
     port: 5173,
     // Host를 바꾸지 않아야(changeOrigin: false) 백엔드가 동일 출처 요청으로 보고 CORS 검사를 하지 않는다.
@@ -53,4 +64,4 @@ export default defineConfig({
     environment: "jsdom",
     include: ["src/**/*.test.ts"],
   },
-});
+}));

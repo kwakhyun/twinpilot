@@ -19,8 +19,12 @@ RUN --mount=type=secret,id=extra_ca,required=false \
 
 FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PATH=/opt/venv/bin:$PATH LANG=C.UTF-8
-RUN useradd -r -u 10001 app
 COPY --from=build /opt/venv /opt/venv
+# 실행에 필요 없는 pip(과 pip가 내장한 urllib3·msgpack 등)를 지워 취약점 노출면을 줄인다.
+RUN useradd -r -u 10001 app \
+ && rm -rf /usr/local/lib/python3.13/site-packages/pip /usr/local/lib/python3.13/site-packages/pip-*.dist-info \
+           /usr/local/lib/python3.13/ensurepip /usr/local/bin/pip* \
+           /opt/venv/lib/python3.13/site-packages/pip /opt/venv/lib/python3.13/site-packages/pip-*.dist-info /opt/venv/bin/pip*
 USER 10001
 # ANTHROPIC_API_KEY가 있으면 LLM 모드, 없으면 규칙 기반 플래너로 동작한다(AGENT_MODE=auto).
 ENV MCP_URL=http://mcp-server:8090/mcp AGENT_MODE=auto LLM_MODEL=claude-opus-5-5 FORWARDED_ALLOW_IPS=*

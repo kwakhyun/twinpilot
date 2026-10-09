@@ -21,6 +21,10 @@
         <java.version>21</java.version>
         <springdoc.version>3.1.1</springdoc.version>
         <awssdk.version>2.55.13</awssdk.version>
+        <!-- 보안 패치: Spring Boot 4.1.1 관리 버전의 알려진 취약점(Trivy 검사) 해결. 다음 Boot 패치에 포함되면 지운다. -->
+        <tomcat.version>11.0.26</tomcat.version>
+        <jackson-bom.version>3.1.7</jackson-bom.version>
+        <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
     </properties>
 
     <dependencyManagement>

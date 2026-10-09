@@ -12,7 +12,17 @@ COPY . .
 RUN npm run build && rm -f dist/config.json   # 실행 설정은 nginx가 환경 변수로 제공한다
 
 # 비루트(uid 101) nginx: Kubernetes에서 runAsNonRoot·readOnlyRootFilesystem으로 실행한다.
-FROM nginxinc/nginx-unprivileged:1.29-alpine
+FROM nginxinc/nginx-unprivileged:1.30-alpine
+# 베이스 이미지 이후 나온 보안 패치를 반영한다(CI 기본값). 패키지 저장소에 닿지 않는 환경에서는 APK_UPGRADE=false.
+ARG APK_UPGRADE=true
+USER root
+RUN --mount=type=secret,id=extra_ca,required=false \
+    if [ "$APK_UPGRADE" = "true" ]; then \
+      if [ -s /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \
+      apk upgrade --no-cache; \
+    fi; \
+    apk del --no-cache curl
+USER 101
 COPY nginx/ /etc/nginx/templates/
 COPY --from=build /src/dist /usr/share/nginx/html
 # 런타임 환경 변수(docker-compose·Kubernetes 공용). OIDC_AUTHORITY는 브라우저가 접근하는 공개 주소다.
