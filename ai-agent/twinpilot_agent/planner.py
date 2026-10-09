@@ -55,7 +55,9 @@ def plan(text: str, context: dict[str, Any] | None = None) -> list[Intent]:
     facility = _facility(t)
     intents: list[Intent] = []
 
-    building_id = _int(r"건물\s*#?\s*(\d+)\s*번?", t) or _int(r"#(\d+)", t)
+    # "건물 696번", "건물 #696", "696번 건물"은 건물 ID다. "건물 5곳"처럼 개수를 세는 말이 붙으면 ID가 아니다.
+    building_id = (_int(r"건물\s*#?\s*(\d+)(?!\s*(?:곳|동|개|채|군데|층|년|%|\d))", t)
+                   or _int(r"(\d+)\s*번\s*건물", t) or _int(r"#(\d+)", t))
     if building_id is None and context and context.get("selectedBuildingId") and re.search(r"이 건물|선택한 건물|선택된 건물", t):
         building_id = int(context["selectedBuildingId"])
     if building_id is not None:
@@ -77,8 +79,12 @@ def plan(text: str, context: dict[str, Any] | None = None) -> list[Intent]:
             args["region"] = region
         intents.append(Intent("recommend_facility_sites", args))
     elif re.search(r"건물", t) and building_id is None and re.search(
-            r"사각지대|밖|미커버|노후|오래된|위험|년\s*이상|층\s*이상|고층", t):
+            r"사각지대|밖|미커버|노후|오래된|위험|년\s*이상|층\s*이상|고층", t) and not (
+            # "AED 접근성 현황 … 사각지대 고위험 건물 수"는 목록이 아니라 커버리지 결과(미커버 고위험 수)로 답한다.
+            facility and re.search(r"커버리지|접근성|현황|커버율", t)):
         args = {"sort": "risk", "limit": 10}
+        if (top := _int(r"(\d+)\s*(?:곳|동|개|채|군데)", t)) is not None and 1 <= top <= 50:
+            args["limit"] = top
         if region:
             args["region"] = region
         if (age := _int(r"(\d+)\s*년\s*(?:이상|넘|초과|된|지난)", t)) is not None:
@@ -94,7 +100,7 @@ def plan(text: str, context: dict[str, Any] | None = None) -> list[Intent]:
         if re.search(r"오래된\s*순|노후\s*순|연식\s*순", t):
             args["sort"] = "age"
         intents.append(Intent("search_buildings", args))
-    elif re.search(r"커버리지|사각지대|반경|커버|도달", t) or (facility and re.search(r"분석|현황|상태|얼마", t)):
+    elif re.search(r"커버리지|사각지대|반경|커버|도달|접근성", t) or (facility and re.search(r"분석|현황|상태|얼마", t)):
         args = {"facility_type": facility or "HYDRANT"}
         if region:
             args["region"] = region

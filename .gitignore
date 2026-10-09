@@ -15,3 +15,4 @@ infra/terraform/ncp/.terraform/
 e2e/node_modules/
 e2e/screenshots/
 e2e/node_modules
+eval-report.*
