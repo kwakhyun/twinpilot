@@ -96,3 +96,12 @@ export const FACILITY_LABELS: Record<string, string> = {
   AED: "AED",
   FIRE_STATION: "소방서",
 };
+
+/** 출동 도달권 색상: 짧은 시간일수록 진한 파랑(순차 팔레트). minutes는 표시 중인 기준 목록. */
+const ISO_RAMP = ["#184f95", "#256abf", "#3987e5", "#6da7ec", "#b7d3f6"];
+export function isochroneColor(minute: number, all: number[]): string {
+  const sorted = [...new Set(all)].sort((a, b) => a - b);
+  const idx = Math.max(0, sorted.indexOf(minute));
+  const step = sorted.length <= 1 ? 0 : Math.round((idx * (ISO_RAMP.length - 1)) / (sorted.length - 1));
+  return ISO_RAMP[step];
+}

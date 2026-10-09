@@ -33,14 +33,13 @@ from pydantic import BaseModel, Field
 from .auth import DEV_USER, AuthConfig, AuthError, Authenticator, McpAuth, User, mcp_token
 from .config import Settings
 from .graph import build_graph
-from .planner import RulePlanner, message_text
+from .planner import CONTEXT_MARK, RulePlanner, message_text
 from .ratelimit import RateLimiter
 from .telemetry import (CHAT_LATENCY, CHAT_REQUESTS, LLM_FALLBACKS, LLM_TOKENS, RATE_LIMITED, TOOL_CALLS,
                         setup_logging, setup_tracing)
 
 log = logging.getLogger("twinpilot.agent")
 SESSION_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
-CONTEXT_MARK = "\n\n[화면 컨텍스트]"
 
 
 class ChatRequest(BaseModel):
@@ -93,6 +92,7 @@ class AgentService:
         self._graph = None
         self._rule_graph = None
         self._init_lock = asyncio.Lock()
+        self._checkpointer_lock = asyncio.Lock()
         self._session_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.checkpointer = None
         self._pool = None
@@ -125,11 +125,16 @@ class AgentService:
         if self.authenticator is not None:
             await self.authenticator.aclose()
 
+    async def _ensure_checkpointer(self):
+        async with self._checkpointer_lock:
+            if self.checkpointer is None:
+                self.checkpointer = await self._create_checkpointer()
+            return self.checkpointer
+
     async def graph(self):
         async with self._init_lock:
             if self._graph is None:
-                if self.checkpointer is None:
-                    self.checkpointer = await self._create_checkpointer()
+                await self._ensure_checkpointer()
                 tools = self._tools
                 if tools is None:
                     connection: dict[str, Any] = {"transport": "streamable_http", "url": self.settings.mcp_url}
@@ -256,10 +261,12 @@ class AgentService:
             LLM_TOKENS.labels(self.model_name, "cache_read").inc(details["cache_read"])
 
     async def history(self, user: User, session_id: str) -> list[dict[str, Any]]:
-        graph = await self.graph()
-        state = await graph.aget_state({"configurable": {"thread_id": self.thread_id(user, session_id)}})
+        """체크포인터에서 직접 읽는다(MCP 서버·LLM 상태와 무관하게 복원)."""
+        saver = await self._ensure_checkpointer()
+        snapshot = await saver.aget_tuple({"configurable": {"thread_id": self.thread_id(user, session_id)}})
+        values = snapshot.checkpoint.get("channel_values", {}) if snapshot else {}
         out: list[dict[str, Any]] = []
-        for m in (state.values or {}).get("messages", []):
+        for m in values.get("messages", []):
             if isinstance(m, HumanMessage):
                 out.append({"role": "user", "content": message_text(m.content).split(CONTEXT_MARK, 1)[0]})
             elif isinstance(m, ToolMessage):

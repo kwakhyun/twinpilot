@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# frontend: Vite 빌드 → nginx 정적 서빙 + /api·/agent 리버스 프록시
+# frontend: Vite 빌드 → nginx 정적 서빙 + /api·/agent·/auth 리버스 프록시
 FROM node:22-alpine AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
@@ -9,13 +9,21 @@ RUN --mount=type=cache,target=/root/.npm \
     if [ -s /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
     npm ci --no-audit --no-fund
 COPY . .
-RUN npm run build
+RUN npm run build && rm -f dist/config.json   # 실행 설정은 nginx가 환경 변수로 제공한다
 
-# 비루트(uid 101) nginx: Kubernetes에서 runAsNonRoot로 실행한다.
+# 비루트(uid 101) nginx: Kubernetes에서 runAsNonRoot·readOnlyRootFilesystem으로 실행한다.
 FROM nginxinc/nginx-unprivileged:1.29-alpine
-COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY nginx/ /etc/nginx/templates/
 COPY --from=build /src/dist /usr/share/nginx/html
-# 런타임 환경 변수로 업스트림 주소를 바꾼다(docker-compose·Kubernetes 공용)
+# 런타임 환경 변수(docker-compose·Kubernetes 공용). OIDC_AUTHORITY는 브라우저가 접근하는 공개 주소다.
 ENV TWIN_API_UPSTREAM=twin-api:8080 \
-    AGENT_UPSTREAM=ai-agent:8000
+    AGENT_UPSTREAM=ai-agent:8000 \
+    KEYCLOAK_UPSTREAM=keycloak:8080 \
+    AUTH_MODE=oidc \
+    OIDC_AUTHORITY=http://localhost:8088/auth/realms/twinpilot \
+    OIDC_CLIENT_ID=twinpilot-web \
+    CSP_CONNECT_EXTRA="" \
+    RATE_LIMIT_API=30r/s \
+    RATE_LIMIT_AGENT=2r/s \
+    NGINX_ENVSUBST_FILTER="^(TWIN_API_UPSTREAM|AGENT_UPSTREAM|KEYCLOAK_UPSTREAM|AUTH_MODE|OIDC_AUTHORITY|OIDC_CLIENT_ID|CSP_CONNECT_EXTRA|RATE_LIMIT_API|RATE_LIMIT_AGENT)$"
 EXPOSE 8080

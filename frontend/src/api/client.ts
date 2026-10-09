@@ -1,4 +1,5 @@
 import type {
+  AuditEntry,
   BuildingDetail,
   BuildingProps,
   CoverageRequest,
@@ -7,13 +8,19 @@ import type {
   FacilityType,
   FeatureCollection,
   GeoJSONGeometry,
+  ImportResult,
+  IsochroneCollection,
   JobView,
+  Me,
   ModelAsset,
   RecommendationResult,
   RegionProps,
+  ResponseResult,
   SensorReading,
   StatsSummary,
 } from "./types";
+import { authFetch, errorMessage } from "./http";
+import { subscribeSse } from "./sse";
 
 const API = "/api/v1";
 
@@ -27,28 +34,30 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(API + path, init);
+  const res = await authFetch(API + path, init);
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? body.error ?? detail;
-    } catch {
-      // 본문이 JSON이 아닌 오류
-    }
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, await errorMessage(res));
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
-const json = (body: unknown): RequestInit => ({
-  method: "POST",
+const json = (body: unknown, method = "POST"): RequestInit => ({
+  method,
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
 });
 
+export interface JobRequest {
+  type: "RECOMMEND_SITES" | "REFRESH_RISK";
+  facilityType?: FacilityType;
+  count?: number;
+  radiusM?: number | null;
+  regionId?: number | null;
+}
+
 export const api = {
+  me: () => request<Me>("/me"),
   regions: (signal?: AbortSignal) => request<FeatureCollection<GeoJSONGeometry, RegionProps>>("/regions", { signal }),
   roads: (signal?: AbortSignal) => request<FeatureCollection<GeoJSONGeometry, { name: string; widthM: number }>>("/roads", { signal }),
   busRoutes: (signal?: AbortSignal) => request<FeatureCollection<GeoJSONGeometry, { name: string }>>("/bus-routes", { signal }),
@@ -57,47 +66,79 @@ export const api = {
   building: (id: number, signal?: AbortSignal) => request<BuildingDetail>(`/buildings/${id}`, { signal }),
   coverage: (req: CoverageRequest, signal?: AbortSignal) =>
     request<CoverageResult>("/analysis/coverage", { ...json(req), signal }),
-  createJob: (body: { type: string; facilityType?: FacilityType; count?: number; radiusM?: number | null; regionId?: number | null }) =>
-    request<JobView<RecommendationResult>>("/analysis/jobs", json(body)),
-  job: (id: string) => request<JobView<RecommendationResult>>(`/analysis/jobs/${id}`),
+  response: (body: { regionId?: number | null; targetMin?: number; top?: number }, signal?: AbortSignal) =>
+    request<ResponseResult>("/analysis/response", { ...json(body), signal }),
+  isochrones: (minutes: number[], signal?: AbortSignal) =>
+    request<IsochroneCollection>(`/analysis/isochrones?minutes=${minutes.join(",")}`, { signal }),
+  createJob: <R = RecommendationResult>(body: JobRequest, idempotencyKey?: string) =>
+    request<JobView<R>>("/analysis/jobs", {
+      ...json(body),
+      headers: { "Content-Type": "application/json", ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}) },
+    }),
+  job: <R = RecommendationResult>(id: string) => request<JobView<R>>(`/analysis/jobs/${id}`),
+  jobs: (params: { all?: boolean; type?: string; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (params.all) q.set("all", "true");
+    if (params.type) q.set("type", params.type);
+    q.set("limit", String(params.limit ?? 20));
+    return request<JobView[]>(`/analysis/jobs?${q}`);
+  },
+  cancelJob: (id: string) => request<JobView>(`/analysis/jobs/${id}`, { method: "DELETE" }),
   stats: (signal?: AbortSignal) => request<StatsSummary>("/stats/summary", { signal }),
-  sensors: () => request<{ total: number; alerts: number; readings: SensorReading[] }>("/sensors"),
+  sensors: () => request<{ total: number; alerts: number; lastReading: string | null; readings: SensorReading[] }>("/sensors"),
   addPlanned: (body: { type: FacilityType; lon: number; lat: number; name?: string }) =>
     request<{ id: number }>("/facilities", json(body)),
   clearPlanned: () => request<{ deleted: number }>("/facilities/planned", { method: "DELETE" }),
   models: () => request<ModelAsset[]>("/models"),
   uploadModel: (form: FormData) => request<ModelAsset>("/models", { method: "POST", body: form }),
   placeModel: (id: string, body: { lon: number; lat: number; heightM: number; headingDeg: number; scale: number }) =>
-    request<ModelAsset>(`/models/${id}/placement`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+    request<ModelAsset>(`/models/${id}/placement`, json(body, "PUT")),
   deleteModel: (id: string) => request<void>(`/models/${id}`, { method: "DELETE" }),
-  modelFileUrl: (id: string) => `${API}/models/${id}/file`,
+  /** 모델 파일은 인증이 필요하므로 Blob URL로 받아 Cesium·Three.js에 넘긴다. 다 쓰면 revoke한다. */
+  modelBlobUrl: async (id: string) => {
+    const res = await authFetch(`${API}/models/${id}/file`);
+    if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
+    return URL.createObjectURL(await res.blob());
+  },
+  importData: (form: FormData) => request<JobView<ImportResult>>("/admin/imports", { method: "POST", body: form }),
+  imports: () => request<JobView<ImportResult>[]>("/admin/imports"),
+  audit: (params: { action?: string; actor?: string; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (params.action) q.set("action", params.action);
+    if (params.actor) q.set("actor", params.actor);
+    q.set("limit", String(params.limit ?? 50));
+    return request<AuditEntry[]>(`/admin/audit?${q}`);
+  },
 };
 
-/** Job 진행률 SSE(EventSource). 완료/실패 시 자동으로 닫는다. */
+/** Job 진행률 SSE. 끊기면 다시 연결하고(서버가 현재 상태부터 다시 보낸다), 최종 이벤트를 받으면 끝낸다. */
 export function watchJob<R>(
   id: string,
-  handlers: { progress: (pct: number, message: string) => void; done: (job: JobView<R>) => void; failed: (job: JobView<R>) => void },
+  handlers: {
+    progress: (pct: number, message: string) => void;
+    done: (job: JobView<R>) => void;
+    failed: (job: JobView<R>) => void;
+  },
 ): () => void {
-  const es = new EventSource(`${API}/analysis/jobs/${id}/events`);
-  es.addEventListener("progress", (e) => {
-    const d = JSON.parse((e as MessageEvent).data);
-    handlers.progress(d.progress, d.message);
+  let finished = false;
+  const stop = subscribeSse(`${API}/analysis/jobs/${id}/events`, {
+    shouldStop: () => finished,
+    onEvent: (e) => {
+      const d = JSON.parse(e.data);
+      if (e.event === "progress") handlers.progress(d.progress, d.message);
+      else if (e.event === "done") {
+        finished = true;
+        handlers.done(d);
+        stop();
+      } else if (e.event === "failed" || e.event === "cancelled") {
+        finished = true;
+        handlers.failed(d);
+        stop();
+      }
+    },
   });
-  es.addEventListener("done", (e) => {
-    handlers.done(JSON.parse((e as MessageEvent).data));
-    es.close();
-  });
-  es.addEventListener("failed", (e) => {
-    handlers.failed(JSON.parse((e as MessageEvent).data));
-    es.close();
-  });
-  es.onerror = () => {
-    // 연결이 끊기면 폴링으로 최종 상태를 확인한다.
-    es.close();
-    void api.job(id).then((job) => {
-      if (job.status === "SUCCEEDED") handlers.done(job as JobView<R>);
-      else if (job.status === "FAILED") handlers.failed(job as JobView<R>);
-    });
+  return () => {
+    finished = true;
+    stop();
   };
-  return () => es.close();
 }

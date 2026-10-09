@@ -61,7 +61,9 @@ def plan(text: str, context: dict[str, Any] | None = None) -> list[Intent]:
     if building_id is not None:
         intents.append(Intent("get_building_detail", {"building_id": building_id}))
 
-    response_time = re.search(r"출동\s*시간|도착\s*시간|골든\s*타임|도달\s*시간|도달권|몇\s*분\s*(?:안|만|이내)", t)
+    response_time = re.search(
+        r"출동\s*시간|도착\s*(?:시간|하지|못)|골든\s*타임|도달\s*시간|도달권|몇\s*분\s*(?:안|만|이내)"
+        r"|\d+\s*분\s*(?:안|내|이내)에?\s*(?:도착|도달|출동)", t)
     if response_time and building_id is None:
         args = {}
         if region:
@@ -120,6 +122,8 @@ def plan(text: str, context: dict[str, Any] | None = None) -> list[Intent]:
         intents.append(Intent("list_regions"))
     return intents
 
+
+CONTEXT_MARK = "\n\n[화면 컨텍스트]"
 
 HELP = ("지금은 다음과 같은 질문에 답할 수 있습니다.\n"
         "· 소화전/AED/소방서 커버리지와 사각지대 (예: 다솜동 소화전 커버리지는?)\n"
@@ -237,6 +241,8 @@ class RulePlanner:
         if tool_results:
             return AIMessage(content=compose_answer(tool_results))
         question = message_text(messages[last_human].content) if last_human >= 0 else ""
+        # 에이전트가 덧붙인 화면 컨텍스트는 질문이 아니다(선택 건물은 context로 따로 받는다).
+        question = question.split(CONTEXT_MARK, 1)[0]
         intents = plan(question, context)
         if not intents:
             return AIMessage(content=HELP)

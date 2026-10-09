@@ -1,18 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { accessToken } from "../auth/session";
 import { Stage } from "./stage";
 
 /** glTF/GLB 미리보기. 바운딩 박스와 지면 격자를 함께 그려 크기를 가늠할 수 있게 한다. */
-export default function ModelViewer({ url }: { url: string }) {
+export default function ModelViewer({ modelId }: { modelId: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<string>("불러오는 중…");
 
   useEffect(() => {
     const stage = new Stage(ref.current!);
     let cancelled = false;
-    new GLTFLoader().load(
-      url,
+    const loader = new GLTFLoader();
+    void accessToken().then((token) => {
+      if (cancelled) return;
+      // 모델 파일은 인증이 필요하므로 요청 헤더에 토큰을 싣는다.
+      if (token) loader.setRequestHeader({ Authorization: `Bearer ${token}` });
+      loader.load(
+      `/api/v1/models/${modelId}/file`,
       (gltf) => {
         if (cancelled) return;
         const model = gltf.scene;
@@ -28,16 +34,17 @@ export default function ModelViewer({ url }: { url: string }) {
       },
       undefined,
       (err) => !cancelled && setStatus(`불러오기 실패: ${(err as Error).message ?? err}`),
-    );
+      );
+    });
     return () => {
       cancelled = true;
       stage.dispose();
     };
-  }, [url]);
+  }, [modelId]);
 
   return (
     <div>
-      <div ref={ref} className="three-view" aria-label="3D 모델 미리보기" />
+      <div ref={ref} className="three-view" role="img" aria-label="3D 모델 미리보기" />
       <p className="muted small">{status} · 드래그로 회전, 휠로 확대</p>
     </div>
   );

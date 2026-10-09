@@ -1,0 +1,7 @@
+{
+  "auth": {
+    "mode": "oidc",
+    "authority": "http://localhost:8088/auth/realms/twinpilot",
+    "clientId": "twinpilot-web"
+  }
+}

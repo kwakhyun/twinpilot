@@ -81,5 +81,5 @@ export default function BuildingSection({ footprint, floors, basementFloors, flo
     return () => stage.dispose();
   }, [footprint, floors, basementFloors, floorHeightM, ladderReachM]);
 
-  return <div ref={ref} className="three-view" aria-label="건물 층별 단면 3D 뷰" />;
+  return <div ref={ref} className="three-view" role="img" aria-label="건물 층별 단면 3D 뷰" />;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { postSse } from "../api/sse";
+import { authFetch } from "../api/http";
+import { HttpError, postSse } from "../api/sse";
 import { useTwin } from "../state/store";
 import { applyUiAction, describeAction, type UiAction } from "./actions";
 
@@ -18,6 +19,7 @@ interface Message {
   actions?: string[];
   mode?: string;
   error?: string;
+  notice?: string;
   pending?: boolean;
 }
 
@@ -27,11 +29,26 @@ function newSessionId(): string {
   return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+const SESSION_KEY = "twinpilot.copilot.session";
+
+/** 새로고침해도 같은 대화를 이어 가도록 세션 ID를 탭 단위(sessionStorage)로 보관한다. */
+function storedSessionId(): string {
+  try {
+    const saved = sessionStorage.getItem(SESSION_KEY);
+    if (saved && /^[A-Za-z0-9_-]{1,64}$/.test(saved)) return saved;
+    const id = newSessionId();
+    sessionStorage.setItem(SESSION_KEY, id);
+    return id;
+  } catch {
+    return newSessionId();
+  }
+}
+
 const EXAMPLES = [
   "다솜동에서 소화전 사각지대에 있는 30년 이상 노후 건물을 위험도순으로 보여줘",
   "한빛동에 AED 3대를 추가한다면 어디가 좋을까?",
+  "소방차가 4분 안에 도착하지 못하는 건물은 어디야?",
   "지금 수압 경보가 난 소화전이 있어?",
-  "행정동별 화재 위험 현황을 요약해줘",
 ];
 
 /** AI 코파일럿: 에이전트 SSE(tool_call/tool_result/ui_action/token/message/done)를 실시간으로 그린다. */
@@ -42,7 +59,7 @@ export function CopilotChat() {
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   // 대화 기록은 에이전트 서버의 체크포인터가 세션별로 이어 붙여 보관한다(append-only).
-  const sessionRef = useRef<string>(newSessionId());
+  const sessionRef = useRef<string>(storedSessionId());
   const listRef = useRef<HTMLDivElement>(null);
   const prompt = useTwin((s) => s.copilotPrompt);
   const selectedBuildingId = useTwin((s) => s.selectedBuildingId);
@@ -50,6 +67,35 @@ export function CopilotChat() {
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [messages]);
+
+  // 서버(체크포인터)에 남은 이 세션의 대화를 복원한다.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    authFetch(`/agent/sessions/${sessionRef.current}/messages`, { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { messages: { role: string; content?: string; name?: string; ok?: boolean; summary?: string }[] } | null) => {
+        if (!body?.messages.length) return;
+        const restored: Message[] = [];
+        for (const m of body.messages) {
+          if (m.role === "user") restored.push({ role: "user", content: m.content ?? "" });
+          else if (m.role === "tool") {
+            const last = restored[restored.length - 1];
+            const step = { id: `${restored.length}-${m.name}`, name: m.name ?? "", args: "", summary: m.summary, ok: m.ok };
+            if (last?.role === "assistant") last.steps = [...(last.steps ?? []), step];
+            else restored.push({ role: "assistant", content: "", steps: [step] });
+          } else if (m.role === "assistant") {
+            const last = restored[restored.length - 1];
+            if (last?.role === "assistant" && !last.content) last.content = m.content ?? "";
+            else restored.push({ role: "assistant", content: m.content ?? "" });
+          }
+        }
+        setMessages((current) => (current.length ? current : restored));
+      })
+      .catch(() => {
+        // 복원 실패는 새 대화로 시작하면 된다.
+      });
+    return () => ctrl.abort();
+  }, []);
 
   useEffect(() => {
     if (prompt) {
@@ -97,11 +143,24 @@ export function CopilotChat() {
             case "token":
               patchLast((m) => ({ ...m, content: m.content + data.text }));
               break;
+            case "notice":
+              // LLM 장애로 규칙 기반 응답으로 바뀌면 그때까지 받은 부분 답변은 버린다.
+              patchLast((m) => ({ ...m, content: "", notice: data.message }));
+              break;
             case "message":
               patchLast((m) => ({ ...m, content: data.content }));
               break;
             case "done":
-              patchLast((m) => ({ ...m, mode: data.mode === "llm" ? `LLM · ${data.model}` : "규칙 기반 플래너(오프라인)", pending: false }));
+              patchLast((m) => ({
+                ...m,
+                mode:
+                  data.mode === "llm"
+                    ? `LLM · ${data.model}`
+                    : data.mode === "rule-fallback"
+                      ? "규칙 기반 플래너(LLM 장애 대체)"
+                      : "규칙 기반 플래너(오프라인)",
+                pending: false,
+              }));
               break;
             case "error":
               patchLast((m) => ({ ...m, error: data.message, pending: false }));
@@ -111,7 +170,9 @@ export function CopilotChat() {
         ctrl.signal,
       );
     } catch (e) {
-      if ((e as Error).name !== "AbortError") {
+      if (e instanceof HttpError && e.status === 429) {
+        patchLast((m) => ({ ...m, error: `요청이 너무 잦습니다. ${e.retryAfter ?? 10}초 뒤에 다시 시도하세요.`, pending: false }));
+      } else if ((e as Error).name !== "AbortError") {
         patchLast((m) => ({ ...m, error: `에이전트 연결 실패: ${(e as Error).message}`, pending: false }));
       }
     } finally {
@@ -139,6 +200,11 @@ export function CopilotChat() {
           disabled={busy}
           onClick={() => {
             sessionRef.current = newSessionId();
+            try {
+              sessionStorage.setItem(SESSION_KEY, sessionRef.current);
+            } catch {
+              // 저장소를 못 쓰면 메모리 세션만 쓴다.
+            }
             setMessages([]);
           }}
         >
@@ -183,6 +249,7 @@ export function CopilotChat() {
                 ))}
               </div>
             )}
+            {m.notice && <div className="notice-text">{m.notice}</div>}
             {m.error && <div className="error-text">{m.error}</div>}
             {m.mode && <div className="muted small">{m.mode}</div>}
           </div>

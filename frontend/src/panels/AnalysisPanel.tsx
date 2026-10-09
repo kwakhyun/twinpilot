@@ -4,7 +4,9 @@ import { api, watchJob } from "../api/client";
 import { useRegions } from "../api/hooks";
 import type { CoverageResult, FacilityType, RecommendationResult } from "../api/types";
 import { FACILITY_LABELS, USE_LABELS } from "../map/colors";
+import { useCan } from "../auth/session";
 import { useTwin } from "../state/store";
+import { ResponseSection } from "./ResponseSection";
 
 const fmt = (v: number) => v.toLocaleString("ko-KR");
 
@@ -19,6 +21,9 @@ export function AnalysisPanel() {
   const selectBuilding = useTwin((s) => s.selectBuilding);
   const flyTo = useTwin((s) => s.flyTo);
   const preset = useTwin((s) => s.analysisPreset);
+  const toast = useTwin((s) => s.toast);
+  const canAnalyze = useCan("ANALYST");
+  const canPlan = useCan("PLANNER");
 
   const [facilityType, setFacilityType] = useState<FacilityType>("HYDRANT");
   const [regionId, setRegionId] = useState<number | null>(null);
@@ -27,7 +32,7 @@ export function AnalysisPanel() {
   const [count, setCount] = useState(3);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [job, setJob] = useState<{ progress: number; message: string } | null>(null);
+  const [job, setJob] = useState<{ id?: string; progress: number; message: string } | null>(null);
   const [baseline, setBaseline] = useState<CoverageResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -75,8 +80,9 @@ export function AnalysisPanel() {
     setJob({ progress: 0, message: "Job 생성" });
     try {
       const created = await api.createJob({ type: "RECOMMEND_SITES", facilityType, count, radiusM, regionId });
+      setJob({ id: created.id, progress: created.progress, message: created.message });
       watchJob<RecommendationResult>(created.id, {
-        progress: (progress, message) => setJob({ progress, message }),
+        progress: (progress, message) => setJob({ id: created.id, progress, message }),
         done: (j) => {
           setJob(null);
           if (j.result) {
@@ -87,7 +93,8 @@ export function AnalysisPanel() {
         },
         failed: (j) => {
           setJob(null);
-          setError(j.error ?? "추천 실패");
+          if (j.status === "CANCELLED") toast("info", "추천 Job을 취소했습니다.");
+          else setError(j.error ?? "추천 실패");
         },
       });
     } catch (e) {
@@ -99,6 +106,17 @@ export function AnalysisPanel() {
   async function applySites() {
     if (!recommendation) return;
     setBusy(true);
+    try {
+      await applySitesInner(recommendation);
+      toast("success", `계획 시설 ${recommendation.sites.length}곳을 배치했습니다.`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applySitesInner(recommendation: RecommendationResult) {
     const before = await api.coverage({ facilityType: recommendation.facilityType, regionId, radiusM, includePlanned: true, includeBlindSpots: false });
     setBaseline(before);
     await Promise.all(
@@ -114,7 +132,13 @@ export function AnalysisPanel() {
   }
 
   async function clearPlanned() {
-    await api.clearPlanned();
+    try {
+      const { deleted } = await api.clearPlanned();
+      toast("info", `계획 시설 ${deleted}곳을 지웠습니다.`);
+    } catch (e) {
+      setError((e as Error).message);
+      return;
+    }
     await qc.invalidateQueries({ queryKey: ["facilities"] });
     setBaseline(null);
     setIncludePlanned(false);
@@ -129,7 +153,7 @@ export function AnalysisPanel() {
           <select value={facilityType} onChange={(e) => setFacilityType(e.target.value as FacilityType)}>
             <option value="HYDRANT">소화전</option>
             <option value="AED">AED</option>
-            <option value="FIRE_STATION">소방서(골든타임)</option>
+            <option value="FIRE_STATION">소방서(직선 반경)</option>
           </select>
         </label>
         <label>
@@ -260,10 +284,22 @@ export function AnalysisPanel() {
               추가 설치 수
               <input type="number" min={1} max={10} value={count} onChange={(e) => setCount(Math.max(1, Math.min(10, Number(e.target.value))))} />
             </label>
-            <button type="button" className="btn primary" onClick={() => void recommend()} disabled={!!job}>
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => void recommend()}
+              disabled={!!job || !canAnalyze}
+              title={canAnalyze ? undefined : "ANALYST 이상 역할이 필요합니다"}
+            >
               추천 실행
             </button>
+            {job?.id && (
+              <button type="button" className="btn" onClick={() => void api.cancelJob(job.id!).catch((e) => setError(e.message))}>
+                취소
+              </button>
+            )}
           </div>
+          {!canAnalyze && <p className="muted small">최적입지 추천은 분석 담당(ANALYST) 이상만 실행할 수 있습니다.</p>}
           {job && (
             <div className="progress" role="progressbar" aria-valuenow={job.progress} aria-valuemin={0} aria-valuemax={100}>
               <div className="progress-bar" style={{ width: `${job.progress}%` }} />
@@ -294,17 +330,26 @@ export function AnalysisPanel() {
               </ol>
               <p className="muted small">{recommendation.method}</p>
               <div className="btn-row">
-                <button type="button" className="btn primary" onClick={() => void applySites()} disabled={busy}>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => void applySites()}
+                  disabled={busy || !canPlan}
+                  title={canPlan ? undefined : "PLANNER 이상 역할이 필요합니다"}
+                >
                   계획 시설로 배치하고 재분석
                 </button>
               </div>
             </div>
           )}
-          <button type="button" className="link-btn" onClick={() => void clearPlanned()}>
-            계획(PLANNED) 시설 모두 지우기
-          </button>
+          {canPlan && (
+            <button type="button" className="link-btn" onClick={() => void clearPlanned()}>
+              계획(PLANNED) 시설 모두 지우기
+            </button>
+          )}
         </section>
       )}
+      <ResponseSection />
     </div>
   );
 }

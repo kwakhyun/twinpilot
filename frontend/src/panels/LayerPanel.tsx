@@ -11,6 +11,7 @@ const LAYERS: { key: LayerKey; label: string; note?: string }[] = [
   { key: "sensors", label: "IoT 센서(경보·이동형)" },
   { key: "busRoutes", label: "버스 노선(이동형 센서)" },
   { key: "models", label: "3D 모델(glTF)" },
+  { key: "isochrones", label: "출동 도달권", note: "분석 탭에서 출동 시간 분석 후 표시" },
   { key: "osm", label: "OSM 배경지도", note: "합성 데이터라 실제 지도와 맞지 않습니다" },
 ];
 
@@ -68,8 +69,8 @@ export function LayerPanel() {
         </div>
       )}
       <p className="muted small">
-        건물을 클릭하면 오른쪽에 상세 정보가 열립니다. 위험도는 노후도·구조·층수·최근접 소화전 거리·소방서 도달시간으로
-        계산합니다.
+        건물을 클릭하면 오른쪽에 상세 정보가 열립니다. 위험도는 노후도·구조·층수·최근접 소화전 거리·도로망 기준 소방서
+        출동 시간으로 계산합니다.
       </p>
     </div>
   );

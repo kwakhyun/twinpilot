@@ -14,3 +14,4 @@ infra/terraform/ncp/.terraform/
 *.tfstate*
 e2e/node_modules/
 e2e/screenshots/
+e2e/node_modules

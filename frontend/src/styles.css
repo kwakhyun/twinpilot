@@ -266,15 +266,16 @@ select {
   cursor: default;
 }
 
+/* 흰 글자와 대비 4.5:1 이상(WCAG AA)이 되도록 강조색보다 한 단계 진한 파랑을 쓴다. */
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: #256abf;
+  border-color: #256abf;
   color: #fff;
   font-weight: 600;
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: #2a78d6;
+  background: #2463b4;
 }
 
 .btn:focus-visible,
@@ -321,8 +322,20 @@ select {
 
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, …): 긴 select·파일 입력이 사이드바 밖으로 밀려나지 않게 한다 */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
+}
+
+.form-grid input:not([type="checkbox"]),
+.form-grid select,
+.form-grid textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.form-grid .span2 {
+  grid-column: 1 / -1;
 }
 
 .form-grid label,
@@ -360,7 +373,8 @@ input:not([type]) {
 .check {
   display: flex !important;
   flex-direction: row !important;
-  align-items: center;
+  align-items: flex-start;
+  overflow-wrap: anywhere;
   gap: 8px;
   padding: 3px 0;
   color: var(--text-primary) !important;
@@ -1002,4 +1016,140 @@ button.alert {
   .copilot {
     max-height: min(420px, calc(100% - 24px));
   }
+}
+
+/* ---------- 인증·사용자 ---------- */
+.gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 24px;
+}
+
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.user-name {
+  color: var(--text-secondary);
+}
+
+.role-badge {
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+/* ---------- 알림·오류 ---------- */
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 50;
+  max-width: 360px;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+
+.toast.success {
+  border-left-color: var(--good);
+}
+
+.toast.error {
+  border-left-color: var(--critical);
+}
+
+.panel-error {
+  margin: 12px;
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--critical);
+  background: var(--surface-2);
+}
+
+.notice-text {
+  color: var(--warning);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+/* ---------- 관리 ---------- */
+textarea {
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: inherit;
+  width: 100%;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  resize: vertical;
+}
+
+.error-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  max-height: 200px;
+  overflow: auto;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.code {
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.data-table.audit td {
+  font-size: 12px;
+}
+
+.admin section + section,
+.analysis .response {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+details summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
+.brand-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
 }

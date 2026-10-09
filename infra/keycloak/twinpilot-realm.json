@@ -159,7 +159,7 @@
       "secret": "${AGENT_CLIENT_SECRET}",
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
-      "serviceAccountsEnabled": false,
+      "serviceAccountsEnabled": true,
       "attributes": {
         "standard.token.exchange.enabled": "true"
       },

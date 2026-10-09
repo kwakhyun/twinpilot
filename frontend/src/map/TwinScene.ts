@@ -4,6 +4,7 @@ import {
   Cartesian2,
   Cartesian3,
   Color,
+  CesiumWidget,
   ColorGeometryInstanceAttribute,
   CustomDataSource,
   EllipseGeometry,
@@ -21,6 +22,7 @@ import {
   PolygonGeometry,
   PolygonHierarchy,
   Primitive,
+  Resource,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   ShowGeometryInstanceAttribute,
@@ -28,8 +30,7 @@ import {
   Transforms,
   UrlTemplateImageryProvider,
   VerticalOrigin,
-  Viewer,
-} from "cesium";
+} from "@cesium/engine";
 import type {
   BuildingProps,
   ColorMode,
@@ -37,12 +38,13 @@ import type {
   FacilityProps,
   FeatureCollection,
   GeoJSONGeometry,
+  IsochroneCollection,
   ModelAsset,
   RecommendationResult,
   RegionProps,
   SensorReading,
 } from "../api/types";
-import { buildingColor, DIMMED, HIGHLIGHT, STATUS } from "./colors";
+import { buildingColor, DIMMED, HIGHLIGHT, isochroneColor, STATUS } from "./colors";
 import { centerOf, pointInGeometry, polygonsOf, ringCentroid } from "./geo";
 
 export type PickInfo =
@@ -71,7 +73,8 @@ const AQ_STATUS_COLOR: Record<string, string> = {
  * - requestRenderMode: 변화가 있을 때만 렌더링해 GPU·배터리 사용을 줄인다
  */
 export class TwinScene {
-  readonly viewer: Viewer;
+  // Viewer(위젯 패키지)는 Knockout을 포함해 eval이 필요하므로 엄격한 CSP에서 쓸 수 없다. 엔진의 CesiumWidget만 쓴다.
+  readonly viewer: CesiumWidget;
   private buildingPrimitive: Primitive | null = null;
   private buildingProps = new Map<number, BuildingProps>();
   private buildingInstanceIds = new Map<number, string[]>();
@@ -85,6 +88,7 @@ export class TwinScene {
   private facilityPoints: PointPrimitiveCollection;
   private facilityLabels: LabelCollection;
   private coverageCircles: Primitive | null = null;
+  private isochrones: Primitive | null = null;
   private sensorPoints: PointPrimitiveCollection;
   private sensorLabels: LabelCollection;
   private facilityFeatures: FeatureCollection<GeoJSONGeometry, FacilityProps> | null = null;
@@ -96,18 +100,8 @@ export class TwinScene {
   private destroyed = false;
 
   constructor(container: HTMLElement) {
-    this.viewer = new Viewer(container, {
+    this.viewer = new CesiumWidget(container, {
       baseLayer: false,
-      baseLayerPicker: false,
-      geocoder: false,
-      homeButton: false,
-      sceneModePicker: false,
-      navigationHelpButton: false,
-      animation: false,
-      timeline: false,
-      fullscreenButton: false,
-      infoBox: false,
-      selectionIndicator: false,
       requestRenderMode: true,
       maximumRenderTimeChange: Infinity,
       msaaSamples: 4,
@@ -422,6 +416,50 @@ export class TwinScene {
   }
 
   // ---------------------------------------------------------------- analysis overlays
+  /** 출동 도달권(분 단위 등시간선 폴리곤). 큰 범위부터 옅게 겹쳐 그려 안쪽(짧은 시간)이 진해진다. */
+  showIsochrones(fc: IsochroneCollection | null, visible = true) {
+    if (this.isochrones) {
+      this.viewer.scene.primitives.remove(this.isochrones);
+      this.isochrones = null;
+    }
+    if (fc && visible) {
+      const features = [...fc.features].sort((a, b) => b.properties.minutes - a.properties.minutes);
+      const minutes = features.map((f) => f.properties.minutes);
+      const instances: GeometryInstance[] = [];
+      features.forEach((f, order) => {
+        if (!f.geometry) return;
+        const color = ColorGeometryInstanceAttribute.fromColor(
+          Color.fromCssColorString(isochroneColor(f.properties.minutes, minutes)).withAlpha(0.22),
+        );
+        for (const rings of polygonsOf(f.geometry)) {
+          instances.push(
+            new GeometryInstance({
+              geometry: new PolygonGeometry({
+                polygonHierarchy: new PolygonHierarchy(
+                  Cartesian3.fromDegreesArray(rings[0].slice(0, -1).flat()),
+                  rings.slice(1).map((h) => new PolygonHierarchy(Cartesian3.fromDegreesArray(h.slice(0, -1).flat()))),
+                ),
+                height: 0.25 + order * 0.05,
+                vertexFormat: PerInstanceColorAppearance.VERTEX_FORMAT,
+              }),
+              attributes: { color },
+            }),
+          );
+        }
+      });
+      if (instances.length > 0) {
+        this.isochrones = this.viewer.scene.primitives.add(
+          new Primitive({
+            geometryInstances: instances,
+            appearance: new PerInstanceColorAppearance({ translucent: true, flat: true }),
+            asynchronous: false,
+          }),
+        );
+      }
+    }
+    this.render();
+  }
+
   showCoverage(result: CoverageResult | null) {
     this.overlays.entities.removeAll();
     if (this.coverageCircles) {
@@ -559,7 +597,12 @@ export class TwinScene {
   }
 
   // ---------------------------------------------------------------- 3D models
-  async setModels(models: ModelAsset[], fileUrl: (id: string) => string, visible: boolean) {
+  /** fileResource: 인증 헤더를 포함한 모델 파일 요청(url, headers)을 돌려준다. */
+  async setModels(
+    models: ModelAsset[],
+    fileResource: (id: string) => Promise<{ url: string; headers: Record<string, string> }>,
+    visible: boolean,
+  ) {
     const wanted = new Map(
       models
         .filter((m) => m.status === "READY" && m.lon != null && m.lat != null)
@@ -582,7 +625,20 @@ export class TwinScene {
         origin,
         new HeadingPitchRoll(CesiumMath.toRadians(m.headingDeg), 0, 0),
       );
-      const model = await Model.fromGltfAsync({ url: fileUrl(m.id), modelMatrix, scale: m.scale, id: { kind: "model", id: m.id } });
+      let model: Model;
+      try {
+        const file = await fileResource(m.id);
+        model = await Model.fromGltfAsync({
+          url: new Resource({ url: file.url, headers: file.headers }),
+          modelMatrix,
+          scale: m.scale,
+          id: { kind: "model", id: m.id },
+        });
+      } catch (e) {
+        console.warn(`모델 ${m.id} 불러오기 실패`, e);
+        this.models.delete(m.id);
+        continue;
+      }
       if (this.destroyed || this.models.get(m.id)?.key !== key) {
         model.destroy();
         continue;

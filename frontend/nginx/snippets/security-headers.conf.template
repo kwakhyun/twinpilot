@@ -1,0 +1,7 @@
+# 보안 헤더(모든 응답). add_header를 쓰는 location마다 이 파일을 다시 include한다(nginx 상속 규칙).
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org; connect-src 'self' ${CSP_CONNECT_EXTRA}; worker-src 'self' blob:; font-src 'self' data:; frame-src 'self' ${CSP_CONNECT_EXTRA}; frame-ancestors 'none'; base-uri 'self'; form-action 'self' ${CSP_CONNECT_EXTRA}; object-src 'none'" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+add_header Cross-Origin-Opener-Policy "same-origin" always;
+add_header Strict-Transport-Security $hsts always;

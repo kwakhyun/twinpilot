@@ -1,8 +1,16 @@
 # TwinPilot 로컬 전체 스택
 #   docker compose -f infra/docker-compose.yml up -d --build
-#   → http://localhost:8088
+#   → http://localhost:8088  (데모 계정: viewer / analyst / planner / admin, 비밀번호는 DEMO_USER_PASSWORD)
+# 관측성(추적·메트릭 대시보드)까지 띄우기:
+#   docker compose -f infra/docker-compose.yml --env-file infra/observability.env --profile observability up -d
 # LLM 모드: ANTHROPIC_API_KEY를 셸 환경에 두면 ai-agent가 claude-opus-5-5로 동작한다(없으면 규칙 기반).
+# 아래 비밀번호·시크릿 기본값은 로컬 개발 전용이다. 운영 값은 Kubernetes Secret으로만 주입한다.
 name: twinpilot
+
+x-oidc: &oidc
+  OIDC_ISSUER: http://localhost:8088/auth/realms/twinpilot
+  OIDC_INTERNAL_URL: http://keycloak:8080/auth/realms/twinpilot
+  LOG_FORMAT: ${LOG_FORMAT:-text}
 
 services:
   postgis:
@@ -10,63 +18,163 @@ services:
     environment:
       POSTGRES_DB: twinpilot
       POSTGRES_USER: twin
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-twin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-twin-local-only}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak-local-only}
+      AGENT_DB_PASSWORD: ${AGENT_DB_PASSWORD:-agent-local-only}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./postgres/10-init-databases.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U twin -d twinpilot"]
       interval: 5s
       timeout: 3s
       retries: 20
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgis:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak-local-only}
+      # 브라우저가 보는 공개 주소(토큰 iss). 컨테이너 간 호출(JWKS·토큰 교환)은 keycloak:8080으로 받는다.
+      KC_HOSTNAME: http://localhost:8088/auth
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin-local-only}
+      # realm 가져오기에서 쓰는 값(twinpilot-realm.json의 ${...})
+      AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET:-agent-secret-local-only}
+      MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET:-mcp-secret-local-only}
+      SENSOR_GATEWAY_SECRET: ${SENSOR_GATEWAY_SECRET:-sensor-secret-local-only}
+      DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-twinpilot-demo}
+      TWINPILOT_WEB_URL: http://localhost:8088
+    volumes:
+      - ./keycloak/twinpilot-realm.json:/opt/keycloak/data/import/twinpilot-realm.json:ro
+      - ./keycloak/local/twinpilot-users-0.json:/opt/keycloak/data/import/twinpilot-users-0.json:ro
+    ports:
+      - "8180:8080"     # 로컬 개발(Vite·mvn spring-boot:run)에서 JWKS를 받는 용도
+    depends_on:
+      postgis:
+        condition: service_healthy
+    healthcheck:
+      # health/ready는 realm 가져오기(비동기 부트스트랩)가 끝나기 전에도 UP이므로, realm 엔드포인트가 200인지 본다.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /auth/realms/twinpilot/.well-known/openid-configuration HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q ' 200 '"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+
   twin-api:
-    image: twinpilot/twin-api:0.1.0
+    image: twinpilot/twin-api:0.2.0
     build: ../backend
     environment:
       DB_URL: jdbc:postgresql://postgis:5432/twinpilot
       DB_USER: twin
-      DB_PASSWORD: ${DB_PASSWORD:-twin}
+      DB_PASSWORD: ${DB_PASSWORD:-twin-local-only}
       SEED_ENABLED: "true"
+      OIDC_ISSUER_URI: http://localhost:8088/auth/realms/twinpilot
+      OIDC_JWK_SET_URI: http://keycloak:8080/auth/realms/twinpilot/protocol/openid-connect/certs
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ${JAVA_LOG_FORMAT:-}
+      TRACING_EXPORT_ENABLED: ${TRACING_EXPORT_ENABLED:-false}
+      OTEL_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
     volumes:
       - models:/data/storage
     depends_on:
       postgis:
         condition: service_healthy
     healthcheck:
-      # 런타임 이미지에 curl이 없어 bash의 /dev/tcp로 readiness를 확인한다.
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health/readiness HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      # 런타임 이미지에 curl이 없어 bash의 /dev/tcp로 readiness(관리 포트 8081)를 확인한다.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /actuator/health/readiness HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
       interval: 5s
       timeout: 3s
-      retries: 30
+      retries: 40
 
   mcp-server:
-    image: twinpilot/mcp-server:0.1.0
+    image: twinpilot/mcp-server:0.2.0
     build: ../mcp-server
     environment:
+      <<: *oidc
       TWIN_API_URL: http://twin-api:8080
+      MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET:-mcp-secret-local-only}
+      MCP_RESOURCE_URL: http://mcp-server:8090/mcp
+      MCP_ALLOWED_HOSTS: mcp-server:8090,mcp-server
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     depends_on:
       twin-api:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
 
   ai-agent:
-    image: twinpilot/ai-agent:0.1.0
+    image: twinpilot/ai-agent:0.2.0
     build: ../ai-agent
     environment:
+      <<: *oidc
       MCP_URL: http://mcp-server:8090/mcp
+      AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET:-agent-secret-local-only}
       AGENT_MODE: ${AGENT_MODE:-auto}
       LLM_MODEL: ${LLM_MODEL:-claude-opus-5-5}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CHECKPOINT_DB_URL: postgresql://agent:${AGENT_DB_PASSWORD:-agent-local-only}@postgis:5432/agent
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     depends_on:
       - mcp-server
 
   frontend:
-    image: twinpilot/frontend:0.1.0
+    image: twinpilot/frontend:0.2.0
     build: ../frontend
+    environment:
+      AUTH_MODE: oidc
+      OIDC_AUTHORITY: http://localhost:8088/auth/realms/twinpilot
+      OIDC_CLIENT_ID: twinpilot-web
     ports:
       - "8088:8080"
     depends_on:
       - twin-api
       - ai-agent
+      - keycloak
+
+  # ---------------------------------------------------------------- 관측성(선택: --profile observability)
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    profiles: [observability]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    profiles: [observability]
+    ports:
+      - "16686:16686"
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    profiles: [observability]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.enable-lifecycle"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    profiles: [observability]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin-local-only}
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
 
 volumes:
   pgdata:

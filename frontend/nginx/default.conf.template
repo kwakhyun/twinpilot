@@ -1,0 +1,126 @@
+# TwinPilot 프론트엔드 nginx(비루트). 이미지 시작 시 envsubst가 ${...}를 치환한다.
+# 정적 SPA + /api(twin-api)·/agent(ai-agent)·/auth(Keycloak) 같은 출처 리버스 프록시.
+
+# 로드밸런서(ALB/Ingress) 뒤에서 실제 클라이언트 IP·프로토콜을 쓴다(사설 대역 프록시만 신뢰).
+set_real_ip_from 10.0.0.0/8;
+set_real_ip_from 172.16.0.0/12;
+set_real_ip_from 192.168.0.0/16;
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+
+map $http_x_forwarded_proto $fwd_proto {
+    default $http_x_forwarded_proto;
+    ""      $scheme;
+}
+# HTTPS로 들어온 요청에만 HSTS를 붙인다(값이 비면 헤더를 보내지 않는다).
+map $fwd_proto $hsts {
+    https   "max-age=31536000; includeSubDomains";
+    default "";
+}
+
+# IP별 요청 한도(사용자별 한도는 에이전트·API가 따로 둔다)
+limit_req_zone $binary_remote_addr zone=api_rl:10m rate=${RATE_LIMIT_API};
+limit_req_zone $binary_remote_addr zone=agent_rl:10m rate=${RATE_LIMIT_AGENT};
+limit_req_status 429;
+
+log_format json escape=json '{"ts":"$time_iso8601","remote":"$remote_addr","method":"$request_method",'
+                            '"uri":"$uri","status":$status,"bytes":$body_bytes_sent,"rt":$request_time,'
+                            '"upstream_rt":"$upstream_response_time","ua":"$http_user_agent",'
+                            '"traceparent":"$http_traceparent"}';
+
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    server_tokens off;
+    access_log /dev/stdout json;
+
+    gzip on;
+    gzip_types application/javascript text/css application/json application/geo+json image/svg+xml model/gltf+json;
+    gzip_min_length 1024;
+
+    include /etc/nginx/conf.d/snippets/security-headers.conf;
+
+    # 환경별 실행 설정(이미지 재빌드 없이 IdP 주소 등을 바꾼다)
+    location = /config.json {
+        default_type application/json;
+        include /etc/nginx/conf.d/snippets/security-headers.conf;
+        add_header Cache-Control "no-store" always;
+        return 200 '{"auth":{"mode":"${AUTH_MODE}","authority":"${OIDC_AUTHORITY}","clientId":"${OIDC_CLIENT_ID}"}}';
+    }
+
+    # 배포 직후 새 버전을 받도록 index.html은 매번 재검증
+    location = /index.html {
+        include /etc/nginx/conf.d/snippets/security-headers.conf;
+        add_header Cache-Control "no-cache" always;
+    }
+
+    # Vite 해시 파일명은 장기 캐시, Cesium 정적 자산은 7일
+    location /assets/ {
+        include /etc/nginx/conf.d/snippets/security-headers.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    }
+    location /cesiumStatic/ {
+        include /etc/nginx/conf.d/snippets/security-headers.conf;
+        add_header Cache-Control "public, max-age=604800" always;
+    }
+
+    # Host(포트 포함)를 유지해야 백엔드가 동일 출처 요청으로 판단한다(CORS 불필요).
+    location /api/ {
+        limit_req zone=api_rl burst=60 nodelay;
+        proxy_pass http://${TWIN_API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $fwd_proto;
+        proxy_set_header Connection "";
+        client_max_body_size 200m;
+        # SSE(센서·Job 진행률) 스트림은 버퍼링하지 않는다.
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 1h;
+    }
+
+    location /agent/ {
+        limit_req zone=agent_rl burst=10 nodelay;
+        proxy_pass http://${AGENT_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $fwd_proto;
+        proxy_set_header Connection "";
+        client_max_body_size 64k;
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+    }
+
+    # Keycloak(로그인). 같은 출처로 두어 브라우저 쿠키·CORS 문제를 피한다.
+    location /auth/ {
+        proxy_pass http://${KEYCLOAK_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $fwd_proto;
+        # 브라우저가 보낸 Host(포트 포함)를 그대로 넘겨야 Keycloak이 토큰 엔드포인트 주소를 공개 주소로 만든다.
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_buffer_size 32k;
+        proxy_buffers 8 32k;
+        # Keycloak 화면은 자체 CSP·보안 헤더를 보낸다. 앱용 CSP가 상속되지 않도록 여기서 헤더를 따로 둔다.
+        add_header Strict-Transport-Security $hsts always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    }
+    # 관리 콘솔·메트릭은 외부에 열지 않는다(클러스터 내부 포트포워딩으로만 접근).
+    location ~ ^/auth/(admin|metrics|health)(/|$) {
+        return 404;
+    }
+
+    location = /healthz {
+        access_log off;
+        return 200 "ok";
+    }
+
+    # SPA 라우팅
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

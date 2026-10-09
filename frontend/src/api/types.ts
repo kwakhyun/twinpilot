@@ -19,6 +19,7 @@ export type Position = [number, number];
 export type GeoJSONGeometry =
   | { type: "Point"; coordinates: Position }
   | { type: "LineString"; coordinates: Position[] }
+  | { type: "MultiLineString"; coordinates: Position[][] }
   | { type: "Polygon"; coordinates: Position[][] }
   | { type: "MultiPolygon"; coordinates: Position[][][] };
 
@@ -115,6 +116,8 @@ export interface BuildingDetail {
     targetMinutes: number;
     withinTarget: boolean;
     method: string;
+    straightLineMinutes: number;
+    roadAccessM: number | null;
   } | null;
   ladder: { ladderReachM: number; floorHeightM: number; reachableFloor: number; floorsBeyondReach: number };
   hydrantSensors: SensorReading[];
@@ -202,17 +205,97 @@ export interface RecommendationResult {
   elapsedMs: number;
 }
 
+export type JobStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+
 export interface JobView<R = unknown> {
   id: string;
   type: string;
-  status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED";
+  status: JobStatus;
   progress: number;
   message: string;
   params: Record<string, unknown>;
   result: R | null;
   error: string | null;
+  createdBy: string | null;
+  attempts: number;
   createdAt: string;
+  startedAt: string | null;
   finishedAt: string | null;
+}
+
+export interface Me {
+  subject: string;
+  username: string;
+  roles: string[];
+}
+
+export interface ResponseResult {
+  targetMin: number;
+  method: string;
+  network: { version: number; nodes: number; edges: number; builtAt: string; stale: boolean } | null;
+  summary: {
+    totalBuildings: number;
+    withinTarget: number;
+    withinRate: number;
+    beyondTarget: number;
+    unreachable: number;
+    highRiskBeyond: number;
+    farFromRoad: number;
+    p50Min: number | null;
+    p90Min: number | null;
+    maxMin: number | null;
+  };
+  regions: { regionId: number; regionName: string; total: number; withinTarget: number; withinRate: number; p90Min: number | null }[];
+  slowest: {
+    id: number;
+    name: string;
+    useType: string;
+    risk: number | null;
+    responseMin: number;
+    stationName: string | null;
+    roadAccessM: number | null;
+    lon: number;
+    lat: number;
+  }[];
+  beyondTargetIds: number[];
+  elapsedMs: number;
+}
+
+export type IsochroneCollection = FeatureCollection<GeoJSONGeometry | null, { minutes: number }>;
+
+export type ImportLayer = "BUILDING" | "HYDRANT" | "AED" | "FIRE_STATION" | "ROAD" | "REGION";
+
+export interface ImportResult {
+  layer: ImportLayer;
+  source: string;
+  mode: "UPSERT" | "REPLACE";
+  dryRun: boolean;
+  srid: number;
+  total: number;
+  valid: number;
+  invalid: number;
+  outOfBounds: number;
+  fixedGeometries: number;
+  duplicates: number;
+  inserted: number;
+  updated: number;
+  removedOrDeactivated: number;
+  errors: string[];
+  sample: Record<string, unknown>[];
+  elapsedMs: number;
+}
+
+export interface AuditEntry {
+  id: number;
+  ts: string;
+  actorSub: string;
+  actorName: string | null;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  details: Record<string, unknown>;
+  clientIp: string | null;
+  traceId: string | null;
 }
 
 export interface Bucket {
@@ -266,6 +349,7 @@ export interface ModelAsset {
   heightM: number;
   headingDeg: number;
   scale: number;
+  createdBy: string | null;
   createdAt: string;
   updatedAt: string;
 }

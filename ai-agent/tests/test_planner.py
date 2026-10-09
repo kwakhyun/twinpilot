@@ -15,6 +15,7 @@ CASES = [
     ("AED 반경 500m로 커버리지 분석해줘", [("analyze_coverage", {"facility_type": "AED", "radius_m": 500})]),
     ("소방서 골든타임 도달 현황 알려줘", [("analyze_response_time", {})]),
     ("한빛동 출동 시간 5분 안에 되나?", [("analyze_response_time", {"region": "한빛동", "target_min": 5})]),
+    ("소방차가 4분 안에 도착하지 못하는 건물은 어디야?", [("analyze_response_time", {"target_min": 4})]),
     ("지금 수압 경보가 난 소화전이 있어?",
      [("get_sensor_status", {"kind": "HYDRANT_PRESSURE", "alerts_only": True})]),
     ("버스 미세먼지 센서 값 보여줘", [("get_sensor_status", {"kind": "AIR_QUALITY", "alerts_only": False})]),
@@ -68,3 +69,15 @@ def test_answer_composed_from_tool_results_only():
         tool_call_id=call.tool_calls[0]["id"], name="analyze_coverage")
     answer = planner([HumanMessage(content="누리동 소화전 커버리지는?"), call, result])
     assert "97.4%" in answer.content and "합성(가상)" in answer.content and not answer.tool_calls
+
+
+def test_screen_context_suffix_is_not_part_of_the_question():
+    from langchain_core.messages import HumanMessage
+
+    from twinpilot_agent.planner import CONTEXT_MARK, RulePlanner
+    msg = HumanMessage(content="소방차가 4분 안에 도착하지 못하는 건물은 어디야?" + CONTEXT_MARK + " 선택된 건물 ID: 1516")
+    ai = RulePlanner()([msg], {"selectedBuildingId": 1516})
+    assert [tc["name"] for tc in ai.tool_calls] == ["analyze_response_time"]
+    # 사용자가 직접 '이 건물'이라고 하면 선택 건물을 쓴다.
+    ai = RulePlanner()([HumanMessage(content="이 건물 브리핑해줘" + CONTEXT_MARK + " 선택된 건물 ID: 7")], {"selectedBuildingId": 7})
+    assert ai.tool_calls[0]["name"] == "get_building_detail" and ai.tool_calls[0]["args"] == {"building_id": 7}

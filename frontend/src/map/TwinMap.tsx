@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import "cesium/Build/Cesium/Widgets/widgets.css";
+import "@cesium/engine/Source/Widget/CesiumWidget.css";
 import { api } from "../api/client";
+import { accessToken } from "../auth/session";
 import { useBuildings, useBusRoutes, useFacilities, useModels, useRegions, useRoads } from "../api/hooks";
 import type { SensorReading } from "../api/types";
 import { useTwin } from "../state/store";
-import { FACILITY_LABELS, legendFor, USE_LABELS } from "./colors";
+import { FACILITY_LABELS, isochroneColor, legendFor, USE_LABELS } from "./colors";
 import { TwinScene, type PickInfo } from "./TwinScene";
 
 interface Tooltip {
@@ -27,6 +28,9 @@ export function TwinMap({ sensors, onReady }: { sensors: SensorReading[]; onRead
   const recommendation = useTwin((s) => s.recommendation);
   const camera = useTwin((s) => s.camera);
   const selectBuilding = useTwin((s) => s.selectBuilding);
+  const isochrones = useTwin((s) => s.isochrones);
+  const setIsochroneData = useTwin((s) => s.setIsochroneData);
+  const toast = useTwin((s) => s.toast);
 
   const regions = useRegions();
   const roads = useRoads();
@@ -70,7 +74,16 @@ export function TwinMap({ sensors, onReady }: { sensors: SensorReading[]; onRead
     if (scene && facilities.data) scene.setFacilities(facilities.data);
   }, [scene, facilities.data]);
   useEffect(() => {
-    if (scene && models.data) void scene.setModels(models.data, api.modelFileUrl, layers.models);
+    if (scene && models.data)
+      void scene.setModels(
+        models.data,
+        async (id) => {
+          const token = await accessToken();
+          const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+          return { url: `/api/v1/models/${id}/file`, headers };
+        },
+        layers.models,
+      );
   }, [scene, models.data, layers.models]);
 
   useEffect(() => {
@@ -95,6 +108,22 @@ export function TwinMap({ sensors, onReady }: { sensors: SensorReading[]; onRead
   useEffect(() => {
     scene?.showSites(recommendation);
   }, [scene, recommendation]);
+  // 출동 도달권: 기준 시간이 정해지면 서버에서 등시간선 폴리곤을 받아 그린다.
+  const isoKey = isochrones?.minutes.join(",");
+  useEffect(() => {
+    if (!isochrones || isochrones.data) return;
+    const ctrl = new AbortController();
+    api
+      .isochrones(isochrones.minutes, ctrl.signal)
+      .then(setIsochroneData)
+      .catch((e) => {
+        if ((e as Error).name !== "AbortError") toast("error", `도달권을 불러오지 못했습니다: ${(e as Error).message}`);
+      });
+    return () => ctrl.abort();
+  }, [isoKey]);
+  useEffect(() => {
+    scene?.showIsochrones(isochrones?.data ?? null, layers.isochrones);
+  }, [scene, isochrones?.data, layers.isochrones]);
   useEffect(() => {
     if (scene && sensors.length) scene.updateSensors(sensors);
   }, [scene, sensors]);
@@ -110,7 +139,7 @@ export function TwinMap({ sensors, onReady }: { sensors: SensorReading[]; onRead
 
   return (
     <div className="map-wrap">
-      <div ref={containerRef} className="map" aria-label="3D 디지털트윈 지도" />
+      <div ref={containerRef} className="map" role="region" aria-label="3D 디지털트윈 지도" />
       {loading && <div className="map-status">트윈 데이터 불러오는 중…</div>}
       {error && <div className="map-status error">데이터를 불러오지 못했습니다: {String((error as Error).message)}</div>}
       {tooltip && (
@@ -131,9 +160,10 @@ export function TwinMap({ sensors, onReady }: { sensors: SensorReading[]; onRead
 function MapLegend() {
   const colorMode = useTwin((s) => s.colorMode);
   const highlight = useTwin((s) => s.highlight);
+  const isochrones = useTwin((s) => s.isochrones);
   const title = { risk: "화재위험도(점)", use: "건물 용도", age: "건축 경과연수" }[colorMode];
   return (
-    <div className="map-legend" aria-label="지도 범례">
+    <div className="map-legend" role="group" aria-label="지도 범례">
       <div className="legend-title">{title}</div>
       <ul>
         {legendFor(colorMode).map((item) => (
@@ -150,6 +180,19 @@ function MapLegend() {
         <li><span className="dot big" style={{ background: "#c98500" }} />소방서</li>
         <li><span className="dot ring" />계획(PLANNED)</li>
       </ul>
+      {isochrones?.data && (
+        <>
+          <div className="legend-title">출동 도달권(도로망)</div>
+          <ul>
+            {isochrones.minutes.map((m) => (
+              <li key={m}>
+                <span className="swatch" style={{ background: isochroneColor(m, isochrones.minutes) }} />
+                {m}분 이내
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {highlight && <div className="legend-note">하이라이트: {highlight.label} ({highlight.ids.length}동)</div>}
     </div>
   );

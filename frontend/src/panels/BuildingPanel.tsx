@@ -10,7 +10,7 @@ const FACTORS: { key: "age" | "structure" | "height" | "hydrant" | "response"; l
   { key: "structure", label: "구조", max: 20 },
   { key: "height", label: "층수", max: 15 },
   { key: "hydrant", label: "소화전 거리", max: 20 },
-  { key: "response", label: "소방서 도달", max: 15 },
+  { key: "response", label: "소방서 출동", max: 15 },
 ];
 
 export function BuildingPanel() {
@@ -76,10 +76,14 @@ export function BuildingPanel() {
             {data.response && (
               <p>
                 <StatusMark ok={data.response.withinTarget} />
-                {data.response.stationName} 도달 추정 <strong>{data.response.estimatedMinutes}분</strong> (목표{" "}
-                {data.response.targetMinutes}분, 직선 {Math.round(data.response.straightDistanceM)}m)
+                {data.response.stationName} 출동 <strong>{data.response.estimatedMinutes}분</strong> (목표{" "}
+                {data.response.targetMinutes}분, 직선 {Math.round(data.response.straightDistanceM)}m · 직선 근사{" "}
+                {data.response.straightLineMinutes}분)
                 <br />
-                <small className="muted">{data.response.method}</small>
+                <small className="muted">
+                  {data.response.method}
+                  {data.response.roadAccessM != null && ` · 가장 가까운 도로까지 ${Math.round(data.response.roadAccessM)}m`}
+                </small>
               </p>
             )}
             <p>
@@ -165,7 +169,7 @@ export function BuildingPanel() {
 
 function StatusMark({ ok }: { ok: boolean }) {
   return (
-    <span className={`status-mark ${ok ? "good" : "critical"}`} aria-label={ok ? "기준 충족" : "기준 미달"}>
+    <span className={`status-mark ${ok ? "good" : "critical"}`} role="img" aria-label={ok ? "기준 충족" : "기준 미달"}>
       {ok ? "✓ 충족" : "! 미달"}
     </span>
   );

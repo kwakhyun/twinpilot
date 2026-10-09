@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { SseParser } from "./api/sse";
+import { SseParser, subscribeSse } from "./api/sse";
+import { hasRole } from "./auth/session";
 import { applyUiAction, type ActionTarget } from "./copilot/actions";
-import { ageColor, AGE_RAMP, buildingColor, legendFor, riskColor, RISK_RAMP, USE_COLORS } from "./map/colors";
+import { ageColor, AGE_RAMP, buildingColor, isochroneColor, legendFor, riskColor, RISK_RAMP, USE_COLORS } from "./map/colors";
 import { centerOf, pointInGeometry, pointInPolygon } from "./map/geo";
 
 describe("SseParser", () => {
@@ -81,6 +82,7 @@ describe("applyUiAction", () => {
     setRecommendation: vi.fn(),
     setColorMode: vi.fn(),
     setLayer: vi.fn(),
+    showIsochrones: vi.fn(),
   });
 
   it("정상 액션을 적용한다", () => {
@@ -98,6 +100,58 @@ describe("applyUiAction", () => {
     expect(applyUiAction({ type: "showLayer", layer: "__proto__", visible: true }, t)).toBe(false);
     expect(applyUiAction({ type: "eval", code: "alert(1)" }, t)).toBe(false);
     expect(applyUiAction(null, t)).toBe(false);
+    expect(applyUiAction({ type: "showIsochrones", minutes: [3, 999] }, t)).toBe(false);
+    expect(applyUiAction({ type: "showIsochrones", minutes: [1, 2, 3, 4, 5, 6] }, t)).toBe(false);
     expect(t.setHighlight).not.toHaveBeenCalled();
+    expect(t.showIsochrones).not.toHaveBeenCalled();
+  });
+
+  it("출동 도달권은 중복을 없애고 오름차순으로 표시한다", () => {
+    const t = target();
+    expect(applyUiAction({ type: "showIsochrones", minutes: [7, 3, 5, 7] }, t)).toBe(true);
+    expect(t.showIsochrones).toHaveBeenCalledWith([3, 5, 7]);
+  });
+});
+
+describe("역할 계층", () => {
+  it("상위 역할은 하위 권한을 포함한다", () => {
+    expect(hasRole(["PLANNER"], "ANALYST")).toBe(true);
+    expect(hasRole(["PLANNER"], "VIEWER")).toBe(true);
+    expect(hasRole(["ANALYST"], "PLANNER")).toBe(false);
+    expect(hasRole(["INGEST"], "VIEWER")).toBe(false);
+    expect(hasRole([], "VIEWER")).toBe(false);
+  });
+});
+
+describe("출동 도달권 색상", () => {
+  it("짧은 시간일수록 진한 색(순차 팔레트 양끝)을 쓴다", () => {
+    expect(isochroneColor(3, [3, 5, 7])).toBe("#184f95");
+    expect(isochroneColor(7, [3, 5, 7])).toBe("#b7d3f6");
+    expect(isochroneColor(5, [5])).toBe("#184f95");
+  });
+});
+
+describe("subscribeSse", () => {
+  it("끊기면 다시 연결하고, 중지 조건이면 멈춘다", async () => {
+    vi.useFakeTimers();
+    const bodies = ["event: progress\ndata: {\"p\":1}\n\n", "event: done\ndata: {}\n\n"];
+    const fetchMock = vi.fn(async () => {
+      const text = bodies.shift() ?? "";
+      return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(text)); c.close(); } }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const events: string[] = [];
+    let done = false;
+    const stop = subscribeSse("/x", { onEvent: (e) => { events.push(e.event); if (e.event === "done") done = true; },
+                                       shouldStop: () => done });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(events).toEqual(["progress", "done"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    stop();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 });
