@@ -17,6 +17,7 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.stereotype.Component;
 
+import io.twinpilot.api.analysis.RiskService;
 import io.twinpilot.api.config.TwinPilotProperties;
 
 /**
@@ -30,14 +31,14 @@ public class DemoDataSeeder implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(DemoDataSeeder.class);
     private static final long SEED_LOCK = 7_420_001L;
 
-    private final JdbcClient jdbc;
     private final DataSource dataSource;
     private final TwinPilotProperties props;
+    private final RiskService risk;
 
-    public DemoDataSeeder(JdbcClient jdbc, DataSource dataSource, TwinPilotProperties props) {
-        this.jdbc = jdbc;
+    public DemoDataSeeder(DataSource dataSource, TwinPilotProperties props, RiskService risk) {
         this.dataSource = dataSource;
         this.props = props;
+        this.risk = risk;
     }
 
     @Override
@@ -68,20 +69,7 @@ public class DemoDataSeeder implements ApplicationRunner {
         }
         long started = System.currentTimeMillis();
         new ResourceDatabasePopulator(new ClassPathResource("db/seed/seed.sql")).execute(locked);
-        int updated = refreshRisk(client);
+        int updated = risk.refreshIn(client);
         log.info("합성 데모 데이터 적재 완료: 건물 {}동, {}ms", updated, System.currentTimeMillis() - started);
-    }
-
-    public int refreshRisk() {
-        return refreshRisk(jdbc);
-    }
-
-    private int refreshRisk(JdbcClient client) {
-        var s = props.standards();
-        return client.sql("SELECT refresh_building_risk(:speed, :detour)")
-                .param("speed", s.speedMetersPerMin())
-                .param("detour", s.detourFactor())
-                .query(Integer.class)
-                .single();
     }
 }

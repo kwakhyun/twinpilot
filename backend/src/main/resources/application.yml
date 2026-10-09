@@ -10,17 +10,27 @@ spring:
     password: ${DB_PASSWORD:twin}
     hikari:
       maximum-pool-size: ${DB_POOL_SIZE:20}
+      connection-timeout: 5000
       # PostGIS 함수 위주 질의는 JIT 컴파일 비용이 이득보다 크다(추천 질의 889ms → 188ms 측정).
-      connection-init-sql: SET jit = off
+      # 요청 처리 질의는 30초를 넘기지 않는다. 오래 걸리는 Job은 트랜잭션 안에서 SET LOCAL로 늘린다.
+      connection-init-sql: SET jit = off; SET statement_timeout = '${DB_STATEMENT_TIMEOUT:30s}'
   flyway:
     enabled: true
   servlet:
     multipart:
-      max-file-size: 100MB
-      max-request-size: 100MB
+      max-file-size: ${UPLOAD_MAX_FILE_SIZE:200MB}
+      max-request-size: ${UPLOAD_MAX_FILE_SIZE:200MB}
   mvc:
     async:
       request-timeout: 0     # SSE 연결은 emitter 단위 타임아웃으로 관리
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # 토큰의 iss(브라우저가 본 공개 주소)와 서명키를 받는 내부 주소를 따로 둔다.
+          issuer-uri: ${OIDC_ISSUER_URI:http://localhost:8088/auth/realms/twinpilot}
+          jwk-set-uri: ${OIDC_JWK_SET_URI:http://localhost:8180/auth/realms/twinpilot/protocol/openid-connect/certs}
+          audiences: ${OIDC_AUDIENCE:twinpilot-api}
 
 server:
   port: ${PORT:8080}
@@ -32,6 +42,8 @@ server:
     min-response-size: 2KB
 
 management:
+  server:
+    port: ${MANAGEMENT_PORT:8081}       # 프로브·메트릭은 별도 포트(Ingress 미노출)
   endpoints:
     web:
       exposure:
@@ -40,18 +52,45 @@ management:
     health:
       probes:
         enabled: true
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}
+    export:
+      otlp:
+        enabled: ${TRACING_EXPORT_ENABLED:false}   # OTLP 수집기가 있을 때만 켠다
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+  # 트레이스만 OTLP로 보낸다. 메트릭은 Prometheus가 수집하고 로그는 stdout(JSON)으로 남긴다.
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  logging:
+    export:
+      otlp:
+        enabled: false
 
 springdoc:
   api-docs:
     path: /api-docs
   swagger-ui:
     path: /swagger-ui.html
+    enabled: ${SWAGGER_UI_ENABLED:true}
+    oauth:
+      client-id: twinpilot-web
+      use-pkce-with-authorization-code-grant: true
 
 twinpilot:
   seed:
     enabled: ${SEED_ENABLED:true}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:4173,http://localhost:8088}
+  security:
+    mode: ${SECURITY_MODE:oidc}
+    role-claims: realm_access.roles,resource_access.twinpilot-api.roles,roles
   storage:
     type: ${STORAGE_TYPE:local}           # local | s3 (NCP Object Storage)
     local-root: ${STORAGE_LOCAL_ROOT:./storage}
@@ -66,12 +105,29 @@ twinpilot:
     hydrant-other-m: 140        # 그 외 지역 140m 이하
     aed-m: 300                  # 가정값(보행 약 4분)
     response-target-min: 7      # 화재 골든타임
-    travel-speed-kmh: 30        # 도달시간 근사용 평균 주행속도
+    travel-speed-kmh: 30        # 도로망이 없을 때 쓰는 직선거리 근사용 평균 주행속도
     detour-factor: 1.3          # 직선거리 → 도로거리 근사 계수
     ladder-reach-m: 45          # 사다리차 유효 높이 가정값
     high-risk-threshold: 60
+  network:                      # 도로망 출동 시간(가정값)
+    wide-road-kmh: 40
+    medium-road-kmh: 30
+    narrow-road-kmh: 20
+    access-kmh: 10
+    turnout-sec: 60
   sensors:
     simulate: ${SENSOR_SIMULATE:true}
-    interval-ms: 2000
-    persist-interval-ms: 10000
+    interval-ms: ${SENSOR_INTERVAL_MS:2000}
     low-pressure-mpa: 0.15
+    retention-days: ${SENSOR_RETENTION_DAYS:7}
+    max-batch: 1000
+  jobs:
+    concurrency: ${JOB_CONCURRENCY:2}
+    lease: 60s
+    max-attempts: 3
+    max-active-per-user: ${JOB_MAX_ACTIVE_PER_USER:5}
+    retention: 30d
+    poll-interval: 5s
+  imports:
+    max-features: ${IMPORT_MAX_FEATURES:500000}
+    batch-size: 500

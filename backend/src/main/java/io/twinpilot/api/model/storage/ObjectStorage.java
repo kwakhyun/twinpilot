@@ -7,6 +7,9 @@ public interface ObjectStorage {
 
     void put(String key, byte[] data, String contentType);
 
+    /** 큰 파일을 메모리에 올리지 않고 스트림으로 저장한다. */
+    void put(String key, InputStream data, long length, String contentType);
+
     InputStream get(String key);
 
     void delete(String key);

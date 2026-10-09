@@ -23,8 +23,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.twinpilot.api.audit.AuditService;
 import io.twinpilot.api.common.GeoJson;
 import io.twinpilot.api.config.TwinPilotProperties;
+import io.twinpilot.api.security.CurrentUser;
 
 /** 행정동·도로·시설·버스노선 레이어와 의사결정용 계획 시설(PLANNED) 관리. */
 @RestController
@@ -33,10 +35,14 @@ public class LayerController {
 
     private final JdbcClient jdbc;
     private final TwinPilotProperties.Standards standards;
+    private final AuditService audit;
+    private final CurrentUser currentUser;
 
-    public LayerController(JdbcClient jdbc, TwinPilotProperties props) {
+    public LayerController(JdbcClient jdbc, TwinPilotProperties props, AuditService audit, CurrentUser currentUser) {
         this.jdbc = jdbc;
         this.standards = props.standards();
+        this.audit = audit;
+        this.currentUser = currentUser;
     }
 
     @GetMapping("/regions")
@@ -122,6 +128,8 @@ public class LayerController {
                 .query((rs, i) -> new FacilityCreated(rs.getInt("id"), rs.getString("type"), rs.getString("status"),
                         rs.getDouble("lon"), rs.getDouble("lat"), (Integer) rs.getObject("region_id")))
                 .single();
+        audit.record(currentUser.get(), "FACILITY_PLAN", "facility", Integer.toString(created.id()),
+                Map.of("type", created.type(), "lon", created.lon(), "lat", created.lat()));
         return ResponseEntity.created(URI.create("/api/v1/facilities/" + created.id())).body(created);
     }
 
@@ -131,11 +139,14 @@ public class LayerController {
         if (deleted == 0) {
             throw new IllegalStateException("계획(PLANNED) 상태 시설만 삭제할 수 있습니다: " + id);
         }
+        audit.record(currentUser.get(), "FACILITY_PLAN_DELETE", "facility", Integer.toString(id), Map.of());
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/facilities/planned")
     public Map<String, Integer> clearPlanned() {
-        return Map.of("deleted", jdbc.sql("DELETE FROM facility WHERE status = 'PLANNED'").update());
+        int deleted = jdbc.sql("DELETE FROM facility WHERE status = 'PLANNED'").update();
+        audit.record(currentUser.get(), "FACILITY_PLAN_CLEAR", "facility", null, Map.of("deleted", deleted));
+        return Map.of("deleted", deleted);
     }
 }

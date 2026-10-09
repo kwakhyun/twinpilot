@@ -16,6 +16,7 @@ import io.twinpilot.api.analysis.AnalysisDtos.JobRequest;
 import io.twinpilot.api.analysis.AnalysisDtos.RecommendationResult;
 import io.twinpilot.api.analysis.AnalysisDtos.Site;
 import io.twinpilot.api.common.RadiusPolicy;
+import io.twinpilot.api.job.Progress;
 
 /**
  * 최대 커버리지 입지 문제(MCLP)를 탐욕 알고리즘으로 푼다.
@@ -24,10 +25,6 @@ import io.twinpilot.api.common.RadiusPolicy;
  */
 @Service
 public class RecommendationService {
-
-    public interface Progress {
-        void report(int percent, String message);
-    }
 
     private final JdbcClient jdbc;
     private final RadiusPolicy radius;

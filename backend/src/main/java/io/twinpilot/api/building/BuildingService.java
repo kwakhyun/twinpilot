@@ -19,17 +19,17 @@ import io.twinpilot.api.building.BuildingDtos.ResponseEstimate;
 import io.twinpilot.api.building.BuildingDtos.SearchResult;
 import io.twinpilot.api.config.TwinPilotProperties;
 import io.twinpilot.api.sensor.SensorReading;
-import io.twinpilot.api.sensor.SensorSimulator;
+import io.twinpilot.api.sensor.SensorHub;
 
 @Service
 public class BuildingService {
 
     private final BuildingRepository repository;
-    private final SensorSimulator sensors;
+    private final SensorHub sensors;
     private final ExecutorService executor;
     private final TwinPilotProperties.Standards standards;
 
-    public BuildingService(BuildingRepository repository, SensorSimulator sensors, ExecutorService virtualThreadExecutor,
+    public BuildingService(BuildingRepository repository, SensorHub sensors, ExecutorService virtualThreadExecutor,
                            TwinPilotProperties props) {
         this.repository = repository;
         this.sensors = sensors;

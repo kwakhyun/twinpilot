@@ -58,6 +58,24 @@ public class StorageConfig {
         }
 
         @Override
+        public void put(String key, InputStream data, long length, String contentType) {
+            try {
+                Path p = resolve(key);
+                Files.createDirectories(p.getParent());
+                Path tmp = Files.createTempFile(p.getParent(), ".upload-", ".tmp");
+                try {
+                    Files.copy(data, tmp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    Files.move(tmp, p, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                            java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                } finally {
+                    Files.deleteIfExists(tmp);
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+
+        @Override
         public InputStream get(String key) {
             try {
                 return Files.newInputStream(resolve(key));
@@ -104,6 +122,12 @@ public class StorageConfig {
         @Override
         public void put(String key, byte[] data, String contentType) {
             client.putObject(b -> b.bucket(bucket).key(key).contentType(contentType), RequestBody.fromBytes(data));
+        }
+
+        @Override
+        public void put(String key, InputStream data, long length, String contentType) {
+            client.putObject(b -> b.bucket(bucket).key(key).contentType(contentType).contentLength(length),
+                    RequestBody.fromInputStream(data, length));
         }
 
         @Override
