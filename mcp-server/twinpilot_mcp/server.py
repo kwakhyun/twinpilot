@@ -9,18 +9,25 @@
 """
 from __future__ import annotations
 
+import functools
 import json
 import os
+import time
 from typing import Annotated, Any, Literal
 
+from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
+from .auth import AuthConfig, JwtVerifier, UpstreamTokens
 from .backend import BackendError, TwinApi
+from .telemetry import TOOL_CALLS, TOOL_LATENCY
 
 FacilityType = Literal["HYDRANT", "AED", "FIRE_STATION"]
 FACILITY_KO = {"HYDRANT": "소화전", "AED": "AED", "FIRE_STATION": "소방서"}
@@ -45,8 +52,52 @@ def _transport_security() -> TransportSecuritySettings | None:
                                      allowed_origins=[f"http://{h}" for h in hosts])
 
 
-def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int = 8090) -> FastMCP:
+def instrumented(fn):
+    """도구 호출 수·결과·지연 시간을 Prometheus 메트릭으로 남긴다(서명은 그대로 유지)."""
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        started = time.perf_counter()
+        outcome = "exception"
+        try:
+            res = await fn(*args, **kwargs)
+            outcome = "error" if getattr(res, "isError", False) else "ok"
+            return res
+        finally:
+            TOOL_CALLS.labels(fn.__name__, outcome).inc()
+            TOOL_LATENCY.labels(fn.__name__).observe(time.perf_counter() - started)
+    return wrapper
+
+
+def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int = 8090,
+                  auth: AuthConfig | None = None, verifier: JwtVerifier | None = None,
+                  upstream: UpstreamTokens | None = None) -> FastMCP:
+    """auth가 있으면 OAuth 보호 리소스로 동작하고, twin-api 호출에는 사용자별 교환 토큰을 쓴다."""
     api = api or TwinApi()
+    auth_kwargs: dict[str, Any] = {}
+    if auth is not None:
+        verifier = verifier or JwtVerifier(auth.issuer, auth.jwks_url, auth.audience)
+        upstream = upstream or UpstreamTokens(auth)
+        auth_kwargs = {
+            "token_verifier": verifier,
+            "auth": AuthSettings(issuer_url=auth.issuer, resource_server_url=auth.resource_url,
+                                 validate_token_resource=False),   # 대상(aud)은 JwtVerifier가 직접 검증
+        }
+
+        async def token_provider() -> str | None:
+            access = get_access_token()
+            if access is not None:
+                return await upstream.for_user(access.token)
+            if auth.client_secret:
+                return await upstream.service()   # stdio 등 사용자 컨텍스트가 없는 실행
+            return None
+
+        def on_unauthorized() -> None:
+            access = get_access_token()
+            upstream.invalidate(access.token if access else None)
+
+        api.token_provider = token_provider
+        api.on_unauthorized = on_unauthorized
+
     mcp = FastMCP(
         "twinpilot",
         instructions=INSTRUCTIONS,
@@ -54,6 +105,7 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
         port=port,
         stateless_http=True,  # 세션 고정 없이 수평 확장(Kubernetes 다중 레플리카)
         transport_security=_transport_security(),
+        **auth_kwargs,
     )
 
     def result(summary: str, data: Any, ui_actions: list[dict[str, Any]] | None = None,
@@ -67,6 +119,7 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
 
     # ------------------------------------------------------------------ tools
     @mcp.tool(annotations=READ_ONLY)
+    @instrumented
     async def list_regions() -> CallToolResult:
         """행정동 목록과 용도지역, 소화전 법정 기준 반경, 건물 수를 조회한다."""
         try:
@@ -78,6 +131,7 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
         return result(f"행정동 {len(rows)}곳", rows, llm_data=rows)
 
     @mcp.tool(annotations=READ_ONLY)
+    @instrumented
     async def search_buildings(
         region: Annotated[str | None, Field(description="행정동 이름 또는 ID. 생략하면 전체")] = None,
         min_age: Annotated[int | None, Field(ge=0, le=150, description="준공 후 최소 경과연수(예: 30)")] = None,
@@ -113,6 +167,7 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
         return result(summary, {"total": full["total"], "items": brief, "ids": ids}, ui, llm_data=brief)
 
     @mcp.tool(annotations=READ_ONLY)
+    @instrumented
     async def get_building_detail(building_id: Annotated[int, Field(ge=1)]) -> CallToolResult:
         """건물 상세: 위험도 요인, 최근접 소화전·AED, 소방서 도달 추정, 사다리차 도달 분석, 소화전 수압 센서."""
         try:
@@ -130,7 +185,8 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
                                 for h in d["nearestHydrants"]],
             "nearestAeds": [{"name": a["name"], "distanceM": a["distanceM"]} for a in d["nearestAeds"]],
             "fireStation": resp.get("stationName"), "responseMin": resp.get("estimatedMinutes"),
-            "responseWithinTarget": resp.get("withinTarget"),
+            "responseMethod": resp.get("method"), "responseWithinTarget": resp.get("withinTarget"),
+            "roadAccessM": resp.get("roadAccessM"),
             "ladder": d["ladder"],
             "hydrantSensors": [{"code": s["code"], "pressureMpa": s["values"].get("pressureMpa"), "status": s["status"]}
                                for s in d["hydrantSensors"]],
@@ -139,6 +195,7 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
         return result(f"건물 #{b['id']} {b['name']} 상세", brief, ui, llm_data=brief)
 
     @mcp.tool(annotations=READ_ONLY)
+    @instrumented
     async def analyze_coverage(
         facility_type: Annotated[FacilityType, Field(description="HYDRANT(소화전), AED, FIRE_STATION(소방서 골든타임)")],
         region: Annotated[str | None, Field(description="행정동 이름 또는 ID. 생략하면 전체")] = None,
@@ -172,6 +229,7 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
         return result(summary, cov | {"blindSpots": []}, ui, llm_data=llm)
 
     @mcp.tool(annotations=READ_ONLY)
+    @instrumented
     async def recommend_facility_sites(
         ctx: Context,
         facility_type: Annotated[Literal["HYDRANT", "AED"], Field(description="추가 설치할 시설")],
@@ -194,7 +252,7 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
         except BackendError as e:
             return error(e)
         if done["status"] != "SUCCEEDED":
-            return error(BackendError(done.get("error") or "추천 실패"))
+            return error(BackendError(done.get("error") or f"추천 {done['status']}"))
         res = done["result"]
         llm = {
             "coverageBefore": res["coverageBefore"], "coverageAfter": res["coverageAfter"],
@@ -213,6 +271,7 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
         return result(summary, res, ui, llm_data=llm)
 
     @mcp.tool(annotations=READ_ONLY)
+    @instrumented
     async def get_dashboard_stats() -> CallToolResult:
         """전체·행정동별 화재위험 통계, 노후 건물 비율, 소화전·AED 커버리지 요약."""
         try:
@@ -227,6 +286,7 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
         return result(f"건물 {s['totals']['buildings']}동 통계", s, [{"type": "setColorMode", "mode": "risk"}], llm_data=llm)
 
     @mcp.tool(annotations=READ_ONLY)
+    @instrumented
     async def get_sensor_status(
         kind: Annotated[Literal["HYDRANT_PRESSURE", "AIR_QUALITY"] | None, Field(description="센서 종류")] = None,
         alerts_only: bool = True,
@@ -245,6 +305,7 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
         return result(summary, s, ui, llm_data=rows)
 
     @mcp.tool(annotations=READ_ONLY)
+    @instrumented
     async def list_3d_models() -> CallToolResult:
         """업로드된 3D 모델(glTF/GLB)과 처리 상태·메타데이터."""
         try:
@@ -256,9 +317,47 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
         return result(f"3D 모델 {len(rows)}개", rows, [{"type": "showLayer", "layer": "models", "visible": True}],
                       llm_data=rows)
 
+    @mcp.tool(annotations=READ_ONLY)
+    @instrumented
+    async def analyze_response_time(
+        region: Annotated[str | None, Field(description="행정동 이름 또는 ID. 생략하면 전체")] = None,
+        target_min: Annotated[float | None, Field(ge=1, le=30, description="목표 도달 시간(분). 생략하면 7분")] = None,
+    ) -> CallToolResult:
+        """도로망 최단경로 기준 소방서 출동 시간을 분석한다: 목표 시간 안 도달 비율, 행정동별 90백분위,
+        목표를 넘는 고위험 건물. 지도에 3·5·목표 분 도달권을 표시한다."""
+        try:
+            r = await api.resolve_region(region)
+            res = await api.post("/api/v1/analysis/response", {
+                "regionId": r["id"] if r else None, "targetMin": target_min, "top": 5})
+        except BackendError as e:
+            return error(e)
+        s = res["summary"]
+        target = res["targetMin"]
+        llm = {
+            "method": res["method"], "targetMin": target, "withinRate": s["withinRate"],
+            "beyondTarget": s["beyondTarget"], "highRiskBeyond": s["highRiskBeyond"], "p50Min": s["p50Min"],
+            "p90Min": s["p90Min"], "maxMin": s["maxMin"], "farFromRoad": s["farFromRoad"],
+            "regions": [{"name": x["regionName"], "withinRate": x["withinRate"], "p90Min": x["p90Min"]}
+                        for x in res["regions"]],
+            "slowest": [{"id": b["id"], "name": b["name"], "risk": b["risk"], "responseMin": b["responseMin"],
+                         "station": b["stationName"]} for b in res["slowest"]],
+        }
+        minutes = sorted({3.0, 5.0, float(target)})
+        ui = [
+            {"type": "showIsochrones", "minutes": minutes},
+            {"type": "highlightBuildings", "ids": res["beyondTargetIds"], "label": f"출동 {target:g}분 초과 건물"},
+        ]
+        summary = (f"출동 {target:g}분 이내 {s['withinRate']}% ({r['name'] if r else '전체'}, 초과 {s['beyondTarget']}동, "
+                   f"초과 고위험 {s['highRiskBeyond']}동, 90백분위 {s['p90Min']}분)")
+        return result(summary, res, ui, llm_data=llm)
+
     @mcp.custom_route("/healthz", methods=["GET"], include_in_schema=False)
     async def healthz(request: Request) -> Response:
         return PlainTextResponse("ok")
+
+    @mcp.custom_route("/metrics", methods=["GET"], include_in_schema=False)
+    async def metrics(request: Request) -> Response:
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     # ------------------------------------------------------------------ resources
     @mcp.resource("twin://schema", name="schema", mime_type="text/markdown")
@@ -278,6 +377,7 @@ def create_server(api: TwinApi | None = None, host: str = "127.0.0.1", port: int
                 f"search_buildings(uncovered_by=HYDRANT, min_age=30)로 근거를 확인하고, 필요하면 "
                 f"recommend_facility_sites로 개선안을 제시해. 수치는 도구 결과만 인용하고 {DISCLAIMER}")
 
+    mcp._twinpilot_api = api   # stdio 실행 시 토큰 공급자를 바꾸기 위해 보관
     return mcp
 
 
@@ -296,8 +396,9 @@ STANDARDS_DOC = """# 분석 기준
 | 소화전 반경 | 주거·상업·공업지역 100m, 그 외 140m | 소방기본법 시행규칙 [별표 3] 수평거리 |
 | AED 반경 | 300m | 가정값(보행 약 4분) |
 | 소방서 도달 목표 | 7분 | 화재 골든타임 |
-| 도달시간 근사 | 직선거리 × 1.3 ÷ 30km/h | MVP 근사(도로망 미반영) |
+| 출동 시간 | 도로망 최단경로(폭 20m 이상 40km/h, 12m 이상 30km/h, 그 외 20km/h) + 출동 준비 60초 | 가정값(일방통행·신호·혼잡 미반영) |
+| 출동 시간(도로망 없을 때) | 직선거리 × 1.3 ÷ 30km/h | 근사 |
 | 사다리차 유효 높이 | 45m | 가정값 |
 | 고위험 | 위험도 60점 이상 | 서비스 기준 |
-위험도 = 노후도 30 + 구조 20 + 층수 15 + 최근접 소화전 거리 20 + 소방서 도달시간 15
+위험도 = 노후도 30 + 구조 20 + 층수 15 + 최근접 소화전 거리 20 + 소방서 출동 시간 15
 """

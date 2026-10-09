@@ -28,6 +28,15 @@ class Settings:
     max_tool_rounds: int = field(default_factory=lambda: int(os.getenv("AGENT_MAX_TOOL_ROUNDS", "5")))
     # 지정하면 대화 상태를 PostgreSQL에 저장해 여러 레플리카가 세션을 공유한다(미지정 시 메모리).
     checkpoint_db_url: str | None = field(default_factory=lambda: os.getenv("CHECKPOINT_DB_URL") or None)
+    # 대화 기록 보존 일수(PostgreSQL 저장소일 때 주기적으로 정리)
+    checkpoint_retention_days: int = field(default_factory=lambda: int(os.getenv("CHECKPOINT_RETENTION_DAYS", "30")))
+    # 사용자별 요청 한도(분당, 순간 허용량). 레플리카마다 따로 센다.
+    rate_per_minute: float = field(default_factory=lambda: float(os.getenv("AGENT_RATE_PER_MIN", "20")))
+    rate_burst: int = field(default_factory=lambda: int(os.getenv("AGENT_RATE_BURST", "5")))
+    # 한 턴 전체 제한 시간(초)
+    request_timeout_s: float = field(default_factory=lambda: float(os.getenv("AGENT_REQUEST_TIMEOUT_S", "180")))
+    # LLM 호출이 재시도 후에도 실패하면 규칙 기반 플래너로 같은 턴을 이어서 답한다.
+    llm_fallback: bool = field(default_factory=lambda: os.getenv("AGENT_LLM_FALLBACK", "true") == "true")
 
     @property
     def resolved_mode(self) -> str:

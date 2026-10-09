@@ -1,6 +1,6 @@
 [project]
 name = "twinpilot-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "TwinPilot AI copilot: LangGraph agent + MCP client + Claude"
 requires-python = ">=3.12"
 dependencies = [
@@ -15,6 +15,12 @@ dependencies = [
     "httpx>=0.28,<0.29",
     "langgraph-checkpoint-postgres>=3.1,<4",
     "psycopg[binary]>=3.2,<4",
+    "pyjwt[crypto]>=2.15,<3",
+    "prometheus-client>=0.26,<1",
+    "opentelemetry-sdk>=1.45,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.45,<2",
+    "opentelemetry-instrumentation-httpx>=0.66b1",
+    "opentelemetry-instrumentation-fastapi>=0.66b1",
 ]
 
 [project.optional-dependencies]

@@ -32,7 +32,8 @@ public class CurrentUser {
             var token = jwt.getToken();
             String username = token.getClaimAsString("preferred_username");
             String clientId = token.getClaimAsString("azp");
-            boolean service = username != null && username.startsWith("service-account-");
+            // 클라이언트 자격 증명으로 받은 서비스 계정 토큰: 사용자 이름이 없거나 service-account- 접두어
+            boolean service = username == null || username.startsWith("service-account-");
             return new Actor(token.getSubject(), username != null ? username : clientId, roles, service);
         }
         return new Actor(auth.getName(), auth.getName(), roles, false);

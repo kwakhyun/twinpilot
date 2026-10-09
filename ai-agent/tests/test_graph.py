@@ -8,6 +8,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import StructuredTool
 
 from twinpilot_agent.app import AgentService, ChatRequest
+from twinpilot_agent.auth import DEV_USER
 from twinpilot_agent.config import Settings
 from twinpilot_agent.graph import build_graph, extract_ui_actions
 
@@ -117,7 +118,7 @@ async def test_tool_round_limit_finalizes_with_valid_history():
     service = llm_service(model, [coverage_tool([])])  # max_tool_rounds=2
     events = await collect(service, "계속 분석해")
     assert "분석 단계가 많아" in dict(events)["message"]["content"]
-    state = await (await service.graph()).aget_state({"configurable": {"thread_id": "s1"}})
+    state = await (await service.graph()).aget_state({"configurable": {"thread_id": service.thread_id(DEV_USER, "s1")}})
     # 모든 tool_use에 대응하는 tool_result가 있어야 다음 턴 요청이 유효하다.
     msgs = state.values["messages"]
     pending = {tc["id"] for m in msgs if isinstance(m, AIMessage) for tc in m.tool_calls}

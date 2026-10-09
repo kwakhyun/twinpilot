@@ -61,7 +61,15 @@ def plan(text: str, context: dict[str, Any] | None = None) -> list[Intent]:
     if building_id is not None:
         intents.append(Intent("get_building_detail", {"building_id": building_id}))
 
-    if re.search(r"추천|어디(가|에)?|입지|설치(하|할)|추가(하|로|한다면|할)|늘리", t) and facility in ("HYDRANT", "AED"):
+    response_time = re.search(r"출동\s*시간|도착\s*시간|골든\s*타임|도달\s*시간|도달권|몇\s*분\s*(?:안|만|이내)", t)
+    if response_time and building_id is None:
+        args = {}
+        if region:
+            args["region"] = region
+        if (minutes := _int(r"(\d+)\s*분", t)) is not None and 1 <= minutes <= 30:
+            args["target_min"] = minutes
+        intents.append(Intent("analyze_response_time", args))
+    elif re.search(r"추천|어디(가|에)?|입지|설치(하|할)|추가(하|로|한다면|할)|늘리", t) and facility in ("HYDRANT", "AED"):
         args: dict[str, Any] = {"facility_type": facility, "count": _int(r"(\d+)\s*(?:대|개|곳|기)", t) or 3}
         if region:
             args["region"] = region
@@ -103,7 +111,8 @@ def plan(text: str, context: dict[str, Any] | None = None) -> list[Intent]:
         intents.append(Intent("get_sensor_status", args))
 
     if re.search(r"현황|요약|통계|대시보드|전반|브리핑", t) and not any(
-            i.tool in ("analyze_coverage", "search_buildings", "get_building_detail") for i in intents):
+            i.tool in ("analyze_coverage", "search_buildings", "get_building_detail", "analyze_response_time")
+            for i in intents):
         intents.append(Intent("get_dashboard_stats"))
     if re.search(r"3D\s*모델|glTF|GLB|모델\s*목록", t, re.I):
         intents.append(Intent("list_3d_models"))
@@ -116,6 +125,7 @@ HELP = ("지금은 다음과 같은 질문에 답할 수 있습니다.\n"
         "· 소화전/AED/소방서 커버리지와 사각지대 (예: 다솜동 소화전 커버리지는?)\n"
         "· 조건별 건물 검색 (예: 소화전 사각지대의 30년 이상 노후 건물)\n"
         "· 신규 시설 최적 입지 추천 (예: 한빛동에 AED 3대를 추가한다면?)\n"
+        "· 도로망 기준 소방서 출동 시간 (예: 한빛동 출동 시간 7분 안에 도착해?)\n"
         "· 건물 상세·화재 대응 브리핑 (예: 건물 696번 브리핑)\n"
         "· 센서 경보, 전체 현황 요약")
 
@@ -160,7 +170,8 @@ def _detail_lines(tool: str, data: Any) -> list[str]:
                  f"소화전 거리 {f.get('hydrant')} · 소방서 도달 {f.get('response')}"]
         if data.get("responseMin") is not None:
             ok = "충족" if data.get("responseWithinTarget") else "미달"
-            lines.append(f"  - {data['fireStation']} 도달 추정 {data['responseMin']}분(목표 7분 {ok})")
+            how = "도로망 기준" if "도로망" in (data.get("responseMethod") or "") else "직선거리 근사"
+            lines.append(f"  - {data['fireStation']} 출동 {data['responseMin']}분({how}, 목표 7분 {ok})")
         ladder = data.get("ladder") or {}
         if ladder.get("floorsBeyondReach"):
             lines.append(f"  - 사다리차({ladder['ladderReachM']}m) 도달 불가: {ladder['floorsBeyondReach']}개 층")
@@ -170,6 +181,14 @@ def _detail_lines(tool: str, data: Any) -> list[str]:
         for s in data.get("hydrantSensors", []):
             if s["status"] == "ALERT":
                 lines.append(f"  - ⚠ 인근 소화전 수압 저하: {s['code']} {s['pressureMpa']}MPa")
+        return lines
+    if tool == "analyze_response_time":
+        lines = [f"  - 중앙값 {data['p50Min']}분, 90백분위 {data['p90Min']}분, 최장 {data['maxMin']}분"]
+        lines += [f"  - {r['name']}: {r['withinRate']}% 도달(90백분위 {r['p90Min']}분)" for r in data["regions"]]
+        if data.get("slowest"):
+            b = data["slowest"][0]
+            lines.append(f"  - 우선 검토: #{b['id']} {b['name']} (위험도 {b['risk']}, 출동 {b['responseMin']}분, {b['station']})")
+        lines.append(f"  - 기준: {data['method']}")
         return lines
     if tool == "get_sensor_status":
         return [f"  - {s['code']} ({s['status']}): " + ", ".join(f"{k} {v}" for k, v in s["values"].items())

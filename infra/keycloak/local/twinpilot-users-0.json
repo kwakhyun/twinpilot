@@ -1,0 +1,77 @@
+{
+  "realm": "twinpilot",
+  "users": [
+    {
+      "username": "viewer",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "조회 사용자",
+      "lastName": "데모",
+      "email": "viewer@twinpilot.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${DEMO_USER_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "VIEWER"
+      ]
+    },
+    {
+      "username": "analyst",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "분석 담당",
+      "lastName": "데모",
+      "email": "analyst@twinpilot.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${DEMO_USER_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "ANALYST"
+      ]
+    },
+    {
+      "username": "planner",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "계획 담당",
+      "lastName": "데모",
+      "email": "planner@twinpilot.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${DEMO_USER_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "PLANNER"
+      ]
+    },
+    {
+      "username": "admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "관리자",
+      "lastName": "데모",
+      "email": "admin@twinpilot.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${DEMO_USER_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "ADMIN"
+      ]
+    }
+  ]
+}

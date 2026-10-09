@@ -55,6 +55,17 @@ class FakeBackend:
                                   "floors": 2, "risk": 73.9, "regionId": 3, "nearestFacilityM": 188.7,
                                   "lon": 129.05, "lat": 35.15}],
                 "blindSpots": [], "standard": "소방기본법 시행규칙 [별표 3]", "elapsedMs": 100})
+        if path == "/api/v1/analysis/response":
+            return httpx.Response(200, json={
+                "targetMin": 7.0, "method": "도로망 최단경로(다중 출발점 Dijkstra)", "network": {"version": 1},
+                "summary": {"totalBuildings": 216, "withinTarget": 150, "withinRate": 69.4, "beyondTarget": 66,
+                            "unreachable": 0, "highRiskBeyond": 12, "farFromRoad": 3, "p50Min": 5.1, "p90Min": 8.2,
+                            "maxMin": 9.9},
+                "regions": [{"regionId": 4, "regionName": "한빛동", "total": 216, "withinTarget": 150,
+                             "withinRate": 69.4, "p90Min": 8.2}],
+                "slowest": [{"id": 9, "name": "한빛동 0009", "useType": "INDUSTRIAL", "risk": 71.0, "responseMin": 9.9,
+                             "stationName": "가람소방서", "roadAccessM": 12.0, "lon": 129.06, "lat": 35.15}],
+                "beyondTargetIds": list(range(100, 166)), "elapsedMs": 40})
         if path == "/api/v1/analysis/jobs":
             return httpx.Response(202, json={"id": "job-1", "status": "QUEUED", "progress": 0, "message": "대기"})
         if path == "/api/v1/analysis/jobs/job-1":
@@ -86,7 +97,8 @@ async def test_lists_tools_resources_and_prompts(server):
     async with create_connected_server_and_client_session(server) as client:
         tools = {t.name: t for t in (await client.list_tools()).tools}
         assert set(tools) == {"list_regions", "search_buildings", "get_building_detail", "analyze_coverage",
-                              "recommend_facility_sites", "get_dashboard_stats", "get_sensor_status", "list_3d_models"}
+                              "recommend_facility_sites", "get_dashboard_stats", "get_sensor_status", "list_3d_models",
+                              "analyze_response_time"}
         assert all(t.annotations.readOnlyHint for t in tools.values())
         # Context 파라미터는 도구 입력 스키마에 노출되면 안 된다.
         assert "ctx" not in tools["recommend_facility_sites"].inputSchema["properties"]
@@ -153,9 +165,26 @@ async def test_recommendation_waits_for_async_job_and_reports_progress(server):
     assert show["type"] == "showSites" and show["result"]["sites"][0]["radiusM"] == 300
 
 
+async def test_response_time_tool_shows_isochrones_and_slow_buildings(server):
+    async with create_connected_server_and_client_session(server) as client:
+        res = await client.call_tool("analyze_response_time", {"region": "한빛동"})
+    assert not res.isError
+    assert res.content[0].text.startswith("출동 7분 이내 69.4% (한빛동")
+    actions = res.structuredContent["ui_actions"]
+    assert actions[0] == {"type": "showIsochrones", "minutes": [3.0, 5.0, 7.0]}
+    assert actions[1]["type"] == "highlightBuildings" and len(actions[1]["ids"]) == 66
+    llm = json.loads(res.content[0].text.split("\n", 1)[1])
+    assert "beyondTargetIds" not in llm and llm["slowest"][0]["station"] == "가람소방서"
+
+
 @pytest.mark.skipif(not os.getenv("TWIN_API_URL"), reason="실행 중인 twin-api가 필요(TWIN_API_URL)")
 async def test_against_live_backend():
-    server = create_server(TwinApi(os.environ["TWIN_API_URL"]))
+    from twinpilot_mcp.auth import AuthConfig, UpstreamTokens
+    api = TwinApi(os.environ["TWIN_API_URL"])
+    config = AuthConfig.from_env()
+    if config is not None and config.client_secret:
+        api.token_provider = UpstreamTokens(config).service   # 서비스 계정(ANALYST)으로 실제 인증 경로 사용
+    server = create_server(api)
     async with create_connected_server_and_client_session(server) as client:
         regions = await client.call_tool("list_regions", {})
         coverage = await client.call_tool("analyze_coverage", {"facility_type": "HYDRANT", "region": "다솜동"})
