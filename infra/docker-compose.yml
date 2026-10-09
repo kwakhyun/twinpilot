@@ -23,7 +23,7 @@ services:
       AGENT_DB_PASSWORD: ${AGENT_DB_PASSWORD:-agent-local-only}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./postgres/10-init-databases.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
+      - ./k8s/base/postgis/init-databases.sql:/docker-entrypoint-initdb.d/10-init-databases.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U twin -d twinpilot"]
       interval: 5s
@@ -31,8 +31,12 @@ services:
       retries: 20
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.6
-    command: ["start", "--import-realm"]
+    image: twinpilot/keycloak:0.2.0
+    build: ./keycloak
+    read_only: true            # 최적화 이미지라 실행 중 재빌드가 없다(쓰기 경로만 tmpfs)
+    tmpfs:
+      - /tmp
+      - /opt/keycloak/data/tmp
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgis:5432/keycloak
@@ -42,10 +46,7 @@ services:
       KC_HOSTNAME: http://localhost:8088/auth
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_HTTP_ENABLED: "true"
-      KC_HTTP_RELATIVE_PATH: /auth
       KC_PROXY_HEADERS: xforwarded
-      KC_HEALTH_ENABLED: "true"
-      KC_METRICS_ENABLED: "true"
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin-local-only}
       # realm 가져오기에서 쓰는 값(twinpilot-realm.json의 ${...})
@@ -55,8 +56,8 @@ services:
       DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-twinpilot-demo}
       TWINPILOT_WEB_URL: http://localhost:8088
     volumes:
-      - ./keycloak/twinpilot-realm.json:/opt/keycloak/data/import/twinpilot-realm.json:ro
-      - ./keycloak/local/twinpilot-users-0.json:/opt/keycloak/data/import/twinpilot-users-0.json:ro
+      # realm(역할·클라이언트)은 이미지에 들어 있다. 데모 사용자는 로컬 환경에서만 덧붙인다.
+      - ./k8s/overlays/local/twinpilot-users-0.json:/opt/keycloak/data/import/twinpilot-users-0.json:ro
     ports:
       - "8180:8080"     # 로컬 개발(Vite·mvn spring-boot:run)에서 JWKS를 받는 용도
     depends_on:
