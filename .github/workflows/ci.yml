@@ -30,7 +30,7 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
-      # 통합 테스트는 Testcontainers로 postgis/postgis:16-3.5와 테스트용 OIDC 발급자를 쓴다.
+      # 통합 테스트는 Testcontainers로 postgis/postgis:16-3.5-alpine(운영 이미지의 베이스)과 테스트용 OIDC 발급자를 쓴다.
       - run: mvn -B verify
 
   frontend:
@@ -138,6 +138,7 @@ jobs:
           - {name: mcp-server, context: mcp-server}
           - {name: ai-agent, context: ai-agent}
           - {name: keycloak, context: infra/keycloak}
+          - {name: postgis, context: infra/postgis}
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3

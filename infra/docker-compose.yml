@@ -14,7 +14,8 @@ x-oidc: &oidc
 
 services:
   postgis:
-    image: postgis/postgis:16-3.5
+    image: twinpilot/postgis:0.2.0
+    build: ./postgis          # postgis/postgis:16-3.5-alpine + 보안 패치, postgres 사용자(uid 70)로 실행
     environment:
       POSTGRES_DB: twinpilot
       POSTGRES_USER: twin
@@ -25,7 +26,7 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./k8s/base/postgis/init-databases.sql:/docker-entrypoint-initdb.d/10-init-databases.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U twin -d twinpilot"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U twin -d twinpilot"]
       interval: 5s
       timeout: 3s
       retries: 20

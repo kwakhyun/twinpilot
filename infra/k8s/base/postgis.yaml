@@ -27,18 +27,18 @@ spec:
     spec:
       serviceAccountName: twinpilot
       terminationGracePeriodSeconds: 60
-      # 이미지의 postgres 사용자(uid·gid 999)로 바로 실행한다. 데이터 볼륨은 fsGroup으로 쓰기 권한을 준다.
+      # 이미지의 postgres 사용자(uid·gid 70, Alpine)로 바로 실행한다. 데이터 볼륨은 fsGroup으로 쓰기 권한을 준다.
       securityContext:
         runAsNonRoot: true
-        runAsUser: 999
-        runAsGroup: 999
-        fsGroup: 999
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: postgis
-          image: postgis/postgis:16-3.5
+          image: twinpilot/postgis
           # 커넥션 예산: twin-api(최대 6×20) + keycloak(2×20) + ai-agent(최대 4×10) + 백업·부트스트랩 여유
           args: ["-c", "max_connections=250", "-c", "shared_buffers=512MB", "-c", "effective_cache_size=1GB"]
           ports:

@@ -27,8 +27,8 @@ spec:
               type: RuntimeDefault
           initContainers:
             - name: dump
-              # 서버와 같은 메이저 버전의 pg_dump를 쓴다.
-              image: postgis/postgis:16-3.5
+              # 서버와 같은 이미지(같은 메이저 버전의 pg_dump)를 쓴다.
+              image: twinpilot/postgis
               command: ["sh", "/scripts/dump.sh"]
               env:
                 - name: PGHOST
@@ -45,7 +45,7 @@ spec:
                 requests: {cpu: 100m, memory: 128Mi}
                 limits: {memory: 512Mi}
               securityContext:
-                runAsUser: 999
+                runAsUser: 70
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
                 capabilities:
@@ -55,7 +55,7 @@ spec:
                 - {name: backup, mountPath: /backup}
           containers:
             - name: upload
-              image: amazon/aws-cli:2.37.4
+              image: amazon/aws-cli:2.37.12
               command: ["bash", "/scripts/upload.sh"]
               env:
                 - name: BACKUP_S3_ENDPOINT

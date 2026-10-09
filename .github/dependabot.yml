@@ -19,7 +19,7 @@ updates:
     directory: /ai-agent
     schedule: {interval: weekly}
   - package-ecosystem: docker
-    directories: [/backend, /frontend, /mcp-server, /ai-agent, /infra/keycloak]
+    directories: [/backend, /frontend, /mcp-server, /ai-agent, /infra/keycloak, /infra/postgis]
     schedule: {interval: weekly}
   - package-ecosystem: github-actions
     directory: /

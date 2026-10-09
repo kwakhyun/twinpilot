@@ -23,7 +23,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: download
-          image: amazon/aws-cli:2.37.4
+          image: amazon/aws-cli:2.37.12
           command: ["bash", "/scripts/download.sh"]
           env:
             - name: BACKUP_TIMESTAMP
@@ -58,7 +58,8 @@ spec:
             - {name: tmp, mountPath: /tmp}
       containers:
         - name: restore
-          image: postgis/postgis:16-3.5
+          # 수동 적용 파일이라 kustomize 이미지 치환을 받지 않는다. 운영 레지스트리의 twinpilot/postgis로 바꿔도 된다.
+          image: postgis/postgis:16-3.5-alpine
           command: ["sh", "/scripts/restore.sh"]
           env:
             - name: BACKUP_TIMESTAMP
@@ -72,7 +73,7 @@ spec:
               valueFrom:
                 secretKeyRef: {name: twinpilot-secrets, key: DB_PASSWORD}
           securityContext:
-            runAsUser: 999
+            runAsUser: 70
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: {drop: ["ALL"]}

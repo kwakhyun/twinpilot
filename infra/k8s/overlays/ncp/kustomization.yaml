@@ -1,7 +1,7 @@
 # NCP Ncloud Kubernetes Service(NKS) 운영 오버레이
 #
 # 사전 준비(docs/runbooks/ncp-deploy.md 참고)
-#   1) Container Registry에 이미지 5종 푸시: <registry>.kr.ncr.ntruss.com/{twin-api,mcp-server,ai-agent,frontend,keycloak}:0.2.0
+#   1) Container Registry에 이미지 6종 푸시: <registry>.kr.ncr.ntruss.com/{twin-api,mcp-server,ai-agent,frontend,keycloak,postgis}:0.2.0
 #      아래 images의 newName을 실제 레지스트리 주소로 바꾼다.
 #   2) 레지스트리 인증 Secret:
 #        kubectl -n twinpilot create secret docker-registry ncr-cred \
@@ -35,6 +35,9 @@ images:
     newTag: 0.2.0
   - name: twinpilot/keycloak
     newName: twinpilot.kr.ncr.ntruss.com/keycloak
+    newTag: 0.2.0
+  - name: twinpilot/postgis
+    newName: twinpilot.kr.ncr.ntruss.com/postgis
     newTag: 0.2.0
 replicas:
   - name: twin-api

@@ -35,7 +35,7 @@ import tools.jackson.databind.ObjectMapper;
 public abstract class IntegrationTestBase {
 
     protected static final PostgreSQLContainer POSTGIS = new PostgreSQLContainer(
-            DockerImageName.parse("postgis/postgis:16-3.5").asCompatibleSubstituteFor("postgres"));
+            DockerImageName.parse("postgis/postgis:16-3.5-alpine").asCompatibleSubstituteFor("postgres"));
 
     static {
         POSTGIS.start();

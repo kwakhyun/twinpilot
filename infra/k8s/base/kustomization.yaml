@@ -34,3 +34,5 @@ images:
     newTag: 0.2.0
   - name: twinpilot/keycloak
     newTag: 0.2.0
+  - name: twinpilot/postgis
+    newTag: 0.2.0

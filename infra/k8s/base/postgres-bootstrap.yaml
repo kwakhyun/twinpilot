@@ -19,12 +19,12 @@ spec:
       restartPolicy: OnFailure
       securityContext:
         runAsNonRoot: true
-        runAsUser: 999
+        runAsUser: 70
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: psql
-          image: postgis/postgis:16-3.5
+          image: twinpilot/postgis
           command: ["psql", "-h", "postgis", "-U", "$(PGUSER)", "-d", "twinpilot", "-f", "/sql/init-databases.sql"]
           env:
             - name: PGUSER

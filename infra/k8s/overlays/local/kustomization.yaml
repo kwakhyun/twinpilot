@@ -1,5 +1,5 @@
 # 로컬 클러스터(kind 등) 검증용
-#   docker compose -f infra/docker-compose.yml build   # 이미지 5종(twin-api·mcp-server·ai-agent·frontend·keycloak)
+#   docker compose -f infra/docker-compose.yml build   # 이미지 6종(twin-api·mcp-server·ai-agent·frontend·keycloak·postgis)
 #   kind load docker-image twinpilot/twin-api:0.2.0 ...
 #   kubectl apply -k infra/k8s/overlays/local
 #   kubectl -n twinpilot port-forward svc/frontend 8088:8080   → http://localhost:8088 (데모 계정 viewer·analyst·planner·admin)
@@ -54,6 +54,12 @@ patches:
           valueFrom:
             secretKeyRef: {name: twinpilot-secrets, key: DEMO_USER_PASSWORD}
   # kind에 미리 적재한 이미지를 쓴다.
+  - target:
+      kind: StatefulSet
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
   - target:
       kind: Deployment
     patch: |-
