@@ -1,0 +1,12 @@
+# HTTPS 앞단. PUBLIC_HOST로 Let's Encrypt 인증서를 자동 발급·갱신한다(80·443 포트가 열려 있어야 한다).
+# 도메인이 없으면 공인 IP로 만든 sslip.io 주소(예: 1-2-3-4.sslip.io)를 쓴다.
+{
+	admin off
+}
+
+{$PUBLIC_HOST} {
+	reverse_proxy frontend:8080 {
+		# SSE(코파일럿 답변·Job 진행률·센서)는 버퍼링 없이 바로 넘긴다.
+		flush_interval -1
+	}
+}

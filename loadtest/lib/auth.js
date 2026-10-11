@@ -3,6 +3,7 @@
 //   AUTH_BASE    : k6가 실제로 접속하는 주소(같은 compose 네트워크면 http://frontend:8080)
 // Keycloak은 공개 주소로 로그인 폼 URL을 만들므로, 그 URL의 앞부분을 AUTH_BASE로 바꿔 요청하고
 // Host 헤더는 공개 주소로 보낸다. 세션 쿠키는 Secure 속성이라 http에서는 직접 넘긴다.
+// 로그인 요청은 매번 빈 쿠키 저장소로 보낸다(VU 기본 저장소에 남은 다른 계정의 SSO 쿠키가 섞이지 않게).
 import http from "k6/http";
 import crypto from "k6/crypto";
 import encoding from "k6/encoding";
@@ -39,7 +40,7 @@ function authorize(cookies) {
     `code_challenge=${challenge}`, "code_challenge_method=S256",
   ].join("&");
   const res = http.get(`${AUTH_BASE}${realmPath}/auth?${query}`, {
-    headers: hostHeader, cookies, redirects: 0, ...tagged,
+    headers: hostHeader, cookies, jar: new http.CookieJar(), redirects: 0, ...tagged,
     responseCallback: http.expectedStatuses(200, 302),
   });
   return { res, verifier };
@@ -61,7 +62,7 @@ export function login(username, password) {
   const form = /<form[^>]+id="kc-form-login"[^>]+action="([^"]+)"/.exec(page.body || "");
   if (page.status !== 200 || !form) fail(`로그인 폼을 받지 못했다: ${page.status}`);
   const submit = http.post(internal(unescapeHtml(form[1])), { username, password, credentialId: "" }, {
-    headers: hostHeader, cookies: cookieMap(page), redirects: 0, ...tagged,
+    headers: hostHeader, cookies: cookieMap(page), jar: new http.CookieJar(), redirects: 0, ...tagged,
     responseCallback: http.expectedStatuses(302), // 성공하면 redirect_uri로 302
   });
   return { sso: cookieMap(submit), token: exchange(submit, verifier, username) };

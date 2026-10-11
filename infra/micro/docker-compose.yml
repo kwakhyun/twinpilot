@@ -1,0 +1,174 @@
+# TwinPilot 경량판: 메모리 1GB 서버(NCP Micro 등) 한 대에 전체 서비스를 띄운다.
+#   - Keycloak 대신 데모용 경량 OIDC 발급자(demo-idp), 관측성 스택 제외, 레플리카 1개
+#   - 서비스마다 메모리 상한을 두고, 서버의 스왑(server-setup.sh가 만든다)으로 순간 사용량을 받는다
+#   - 값은 같은 디렉터리의 .env에서 읽는다(server-setup.sh가 처음 한 번 만든다. 예시: .env.example)
+# 실행: docker compose -f infra/micro/docker-compose.yml up -d --wait
+name: twinpilot
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "2" }   # 디스크 10GB: 로그가 쌓이지 않게 한다
+
+x-oidc: &oidc
+  OIDC_ISSUER: https://${PUBLIC_HOST:?PUBLIC_HOST가 필요합니다}/auth/realms/twinpilot
+  OIDC_INTERNAL_URL: http://idp:8080/auth/realms/twinpilot
+  LOG_FORMAT: text
+
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    <<: *logging
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data          # 인증서(재발급 한도에 걸리지 않게 보존)
+      - caddy_config:/config
+    mem_limit: 64m
+    depends_on: [frontend]
+
+  postgis:
+    image: twinpilot/postgis:0.2.0
+    <<: *logging
+    restart: unless-stopped
+    # 메모리 1GB 서버에 맞춘 설정(운영 StatefulSet은 shared_buffers 512MB·연결 250)
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=30", "-c", "work_mem=4MB",
+              "-c", "maintenance_work_mem=32MB", "-c", "effective_cache_size=256MB", "-c", "jit=off",
+              "-c", "max_wal_size=256MB", "-c", "min_wal_size=64MB", "-c", "wal_buffers=1MB"]
+    environment:
+      POSTGRES_DB: twinpilot
+      POSTGRES_USER: twin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?}
+      AGENT_DB_PASSWORD: ${AGENT_DB_PASSWORD:?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-agent-db.sql:/docker-entrypoint-initdb.d/10-init-agent-db.sql:ro
+    shm_size: 64m
+    mem_limit: 192m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U twin -d twinpilot"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  idp:
+    # 데모용 OIDC 발급자. 필요한 라이브러리가 모두 있는 mcp-server 이미지를 재사용한다(추가 이미지 없음).
+    image: twinpilot/mcp-server:0.2.0
+    <<: *logging
+    restart: unless-stopped
+    command: ["python", "/idp/idp.py"]
+    read_only: true
+    environment:
+      PUBLIC_URL: https://${PUBLIC_HOST}
+      KEY_FILE: /secrets/idp-signing-key.pem
+      DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:?}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET:?}
+      MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET:?}
+      SENSOR_GATEWAY_SECRET: ${SENSOR_GATEWAY_SECRET:?}
+      LOGIN_HINT: ${LOGIN_HINT:-}
+    volumes:
+      - ./demo-idp:/idp:ro
+      - ./secrets/idp-signing-key.pem:/secrets/idp-signing-key.pem:ro
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  twin-api:
+    image: twinpilot/twin-api:0.2.0
+    <<: *logging
+    restart: unless-stopped
+    environment:
+      # 힙·메타스페이스·코드 캐시를 줄이고 C1 컴파일러만 쓴다(처리량보다 메모리를 우선).
+      JAVA_TOOL_OPTIONS: >-
+        -Xms48m -Xmx176m -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=40m
+        -XX:TieredStopAtLevel=1 -XX:CICompilerCount=1 -XX:+UseSerialGC -Xss512k
+        -XX:MaxDirectMemorySize=32m -XX:+ExitOnOutOfMemoryError
+      DB_URL: jdbc:postgresql://postgis:5432/twinpilot
+      DB_USER: twin
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_POOL_SIZE: "6"
+      SEED_ENABLED: "true"
+      OIDC_ISSUER_URI: https://${PUBLIC_HOST}/auth/realms/twinpilot
+      OIDC_JWK_SET_URI: http://idp:8080/auth/realms/twinpilot/protocol/openid-connect/certs
+      CORS_ALLOWED_ORIGINS: https://${PUBLIC_HOST}
+      SWAGGER_UI_ENABLED: "false"
+      JOB_CONCURRENCY: "1"
+      JOB_MAX_ACTIVE_PER_USER: "2"
+      SENSOR_INTERVAL_MS: "10000"         # 시뮬레이터 측정 주기(기본 2초) → 10초: DB 쓰기·디스크를 줄인다
+      SENSOR_RETENTION_DAYS: "2"
+      UPLOAD_MAX_FILE_SIZE: 20MB
+      IMPORT_MAX_FEATURES: "50000"
+    volumes:
+      - models:/data/storage
+    mem_limit: 400m
+    depends_on:
+      postgis:
+        condition: service_healthy
+      idp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /actuator/health/readiness HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 60                          # vCPU 1개에서는 첫 기동(시드 적재 포함)이 몇 분 걸린다
+
+  mcp-server:
+    image: twinpilot/mcp-server:0.2.0
+    <<: *logging
+    restart: unless-stopped
+    environment:
+      <<: *oidc
+      TWIN_API_URL: http://twin-api:8080
+      MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET}
+      MCP_RESOURCE_URL: http://mcp-server:8090/mcp
+      MCP_ALLOWED_HOSTS: mcp-server:8090,mcp-server
+    mem_limit: 128m
+    depends_on:
+      twin-api:
+        condition: service_healthy
+
+  ai-agent:
+    image: twinpilot/ai-agent:0.2.0
+    <<: *logging
+    restart: unless-stopped
+    environment:
+      <<: *oidc
+      MCP_URL: http://mcp-server:8090/mcp
+      AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
+      AGENT_MODE: ${AGENT_MODE:-auto}
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-5-5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CHECKPOINT_DB_URL: postgresql://agent:${AGENT_DB_PASSWORD}@postgis:5432/agent
+    mem_limit: 256m
+    depends_on:
+      - mcp-server
+
+  frontend:
+    image: twinpilot/frontend:0.2.0
+    <<: *logging
+    restart: unless-stopped
+    environment:
+      AUTH_MODE: oidc
+      OIDC_AUTHORITY: https://${PUBLIC_HOST}/auth/realms/twinpilot
+      OIDC_CLIENT_ID: twinpilot-web
+      KEYCLOAK_UPSTREAM: idp:8080
+    mem_limit: 48m
+    depends_on:
+      - twin-api
+      - ai-agent
+      - idp
+
+volumes:
+  pgdata:
+  models:
+  caddy_data:
+  caddy_config:

@@ -16,3 +16,6 @@ e2e/node_modules/
 e2e/screenshots/
 e2e/node_modules
 eval-report.*
+infra/micro/.env
+infra/micro/secrets/
+infra/micro/*.tar.gz

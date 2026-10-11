@@ -96,7 +96,9 @@ cd frontend && npm ci && npm run dev
 
 ## 배포·운영
 
-- NCP 배포: [docs/runbooks/ncp-deploy.md](docs/runbooks/ncp-deploy.md)
+- **서버 한 대(메모리 1GB, NCP Micro 등)에 시연용 배포**: [docs/runbooks/micro-deploy.md](docs/runbooks/micro-deploy.md)
+  — Keycloak 대신 데모용 경량 로그인 서버, Let's Encrypt 자동 HTTPS. `infra/micro/deploy.sh root@<서버 IP>` 한 줄로 배포
+- NCP 배포(운영, NKS): [docs/runbooks/ncp-deploy.md](docs/runbooks/ncp-deploy.md)
 - 백업·복구: [docs/runbooks/backup-restore.md](docs/runbooks/backup-restore.md)
 - 경보 대응: [docs/runbooks/alerts.md](docs/runbooks/alerts.md)
 - 비밀 교체: [docs/runbooks/secrets-rotation.md](docs/runbooks/secrets-rotation.md)

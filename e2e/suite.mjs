@@ -1,5 +1,6 @@
 // TwinPilot 브라우저 E2E: 실제 Keycloak 로그인(역할별) → 화면 시나리오 → 접근성(axe) → CSP 위반 확인.
 //   BASE=http://localhost:8088 DEMO_PASSWORD=... node suite.mjs
+//   자체 서명 인증서(경량판 로컬 시험 https://localhost)에서는 IGNORE_HTTPS_ERRORS=1
 // 각 시나리오의 스크린숏을 OUT 폴더에 남기고, 실패하면 종료 코드 1로 끝난다.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,7 +36,8 @@ async function scenario(name, fn) {
 
 /** 역할별 브라우저 컨텍스트(쿠키·세션 분리). Keycloak 로그인 폼을 실제로 채운다. */
 async function loginAs(username) {
-  const context = await browser.newContext({ viewport: { width: 1600, height: 900 }, locale: "ko-KR" });
+  const context = await browser.newContext({ viewport: { width: 1600, height: 900 }, locale: "ko-KR",
+    ignoreHTTPSErrors: process.env.IGNORE_HTTPS_ERRORS === "1" });
   const page = await context.newPage();
   page.on("console", (m) => {
     const text = m.text();

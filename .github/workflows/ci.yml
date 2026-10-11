@@ -71,6 +71,11 @@ jobs:
       - run: pip install --require-hashes -r requirements.lock
       - run: pip install --no-deps -e . && pip install "pytest>=9,<10" "pytest-asyncio>=1.4,<2"
       - run: pytest -q
+      # 경량판 데모 로그인 서버(infra/micro/demo-idp)는 mcp-server와 같은 의존성으로 돈다.
+      - name: 경량판 demo-idp 테스트
+        if: matrix.service == 'mcp-server'
+        working-directory: infra/micro/demo-idp
+        run: python -m unittest -v test_idp
       - name: 의존성 취약점(pip-audit)
         run: pip install pip-audit==2.10.1 && pip-audit -r requirements.lock --require-hashes --disable-pip --progress-spinner off
 
@@ -81,6 +86,11 @@ jobs:
       - uses: actions/checkout@v5
       - name: 모니터링 리소스가 infra/observability와 같은지 확인
         run: python3 infra/k8s/components/monitoring/generate.py --check
+      - name: 경량판 compose 구성 검사
+        run: |
+          sed "s/=$/=ci-only/" infra/micro/.env.example > infra/micro/.env   # 빈 값은 compose가 거부한다
+          docker compose -f infra/micro/docker-compose.yml config -q
+          bash -n infra/micro/server-setup.sh infra/micro/deploy.sh
       - name: 경보 규칙 문법(promtool)
         run: |
           docker run --rm -v "$PWD/infra/observability:/obs:ro" --entrypoint promtool prom/prometheus:v3.15.0 check rules /obs/alerts.yml
