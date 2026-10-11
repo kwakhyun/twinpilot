@@ -37,11 +37,13 @@ services:
     image: twinpilot/keycloak:0.2.0
     build: ./keycloak
     read_only: true            # 최적화 이미지라 실행 중 재빌드가 없다(쓰기 경로만 tmpfs)
+    # tmpfs는 기본으로 root 소유(755)라 keycloak 사용자(uid 1000)가 쓸 수 있게 소유자를 지정한다.
+    # data/tmp를 쓸 수 없으면 테마 정적 파일의 gzip 캐시를 만들지 못해 압축 요청(브라우저)에 404가 난다.
     tmpfs:
       - /tmp
-      - /opt/keycloak/data/tmp
+      - /opt/keycloak/data/tmp:uid=1000,gid=0,mode=0770
       # 트랜잭션 로그(XA 미사용이라 휘발돼도 된다). 쓸 수 없으면 복구 모듈 초기화가 각각 10초씩 지연된다.
-      - /opt/keycloak/data/transaction-logs
+      - /opt/keycloak/data/transaction-logs:uid=1000,gid=0,mode=0770
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgis:5432/keycloak

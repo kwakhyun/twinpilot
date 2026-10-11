@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>outro</title>
+<style>
+  :root { --bg:#0b1118; --fg:#e8eef5; --muted:#8fa3b8; --accent:#3b8cff; --line:#2a3a4c; --card:#121c27; --ok:#3ccf8e; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { width:1600px; height:900px; overflow:hidden; background:var(--bg); color:var(--fg); font-family:"Pretendard",sans-serif; }
+  h2 { position:absolute; top:58px; left:90px; font-size:40px; font-weight:800; opacity:0; animation: up .7s ease-out .1s forwards; transform:translateY(14px); }
+  .flow { position:absolute; top:150px; left:90px; right:90px; height:300px; }
+  .node { position:absolute; width:210px; padding:16px 14px; border:1px solid var(--line); border-radius:12px; background:var(--card);
+    text-align:center; opacity:0; transform:translateY(14px); animation: up .55s ease-out forwards; }
+  .node b { display:block; font-size:22px; font-weight:700; }
+  .node span { display:block; margin-top:6px; font-size:15px; color:var(--muted); }
+  .node.hl { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  svg { position:absolute; inset:0; overflow:visible; }
+  svg path { stroke:#4f6b88; stroke-width:2; fill:none; stroke-dasharray:6 6; opacity:0; animation: fadein .4s ease-out forwards; }
+  .stats { position:absolute; left:90px; right:90px; top:510px; display:grid; grid-template-columns:repeat(4,1fr); gap:18px; }
+  .stat { padding:20px 22px; border-radius:12px; background:var(--card); border:1px solid var(--line); opacity:0;
+    transform:translateY(14px); animation: up .55s ease-out forwards; }
+  .stat .v { font-size:38px; font-weight:800; color:#fff; }
+  .stat .k { margin-top:6px; font-size:17px; color:var(--muted); line-height:1.4; }
+  .foot { position:absolute; left:90px; right:90px; bottom:56px; display:flex; justify-content:space-between; align-items:center;
+    font-size:18px; color:var(--muted); opacity:0; animation: fadein .8s ease-out 4.2s forwards; }
+  .foot .brand { display:flex; align-items:center; gap:12px; color:var(--fg); font-size:26px; font-weight:800; }
+  .mark { width:24px; height:24px; transform:rotate(45deg); background:var(--accent); border-radius:4px; }
+  @keyframes up { to { opacity:1; transform:none; } }
+  @keyframes fadein { to { opacity:1; } }
+</style></head>
+<body>
+  <h2>구성과 검증</h2>
+  <div class="flow">
+    <svg width="1420" height="300">
+      <path d="M210 70 H 300" style="animation-delay:.9s"/>
+      <path d="M510 70 H 600" style="animation-delay:1.1s"/>
+      <path d="M810 70 H 900" style="animation-delay:1.3s"/>
+      <path d="M405 115 V 190" style="animation-delay:1.5s"/>
+      <path d="M1005 115 V 190" style="animation-delay:1.7s"/>
+      <path d="M1110 70 H 1200" style="animation-delay:1.9s"/>
+    </svg>
+    <div class="node" style="left:0;top:20px;animation-delay:.3s"><b>React · Cesium</b><span>3D 지도 · Three.js 단면</span></div>
+    <div class="node hl" style="left:300px;top:20px;animation-delay:.45s"><b>AI 에이전트</b><span>LangGraph · SSE 스트리밍</span></div>
+    <div class="node hl" style="left:600px;top:20px;animation-delay:.6s"><b>MCP 서버</b><span>분석 도구 9종</span></div>
+    <div class="node" style="left:900px;top:20px;animation-delay:.75s"><b>Spring Boot API</b><span>공간 분석 · 작업 큐</span></div>
+    <div class="node" style="left:1200px;top:20px;animation-delay:.9s"><b>PostGIS</b><span>도로망 · 건물 · 센서</span></div>
+    <div class="node" style="left:300px;top:190px;animation-delay:1.05s"><b>Keycloak</b><span>OIDC · 토큰 교환 · 역할 4단계</span></div>
+    <div class="node" style="left:900px;top:190px;animation-delay:1.2s"><b>Kubernetes</b><span>NCP · 백업 · 모니터링</span></div>
+  </div>
+  <div class="stats">
+    <div class="stat" style="animation-delay:2.2s"><div class="v">109</div><div class="k">자동 테스트 통과<br>백엔드·프론트·MCP·에이전트</div></div>
+    <div class="stat" style="animation-delay:2.45s"><div class="v">12 / 12</div><div class="k">역할별 브라우저 E2E<br>콘솔·CSP·접근성 위반 0</div></div>
+    <div class="stat" style="animation-delay:2.7s"><div class="v">200 req/s</div><div class="k">혼합 부하 오류 0 · p95 20ms<br>(단일 호스트 측정)</div></div>
+    <div class="stat" style="animation-delay:2.95s"><div class="v">kill -9</div><div class="k">작업 노드 강제 종료 후<br>다른 레플리카가 이어받아 완료</div></div>
+  </div>
+  <div class="foot"><div class="brand"><div class="mark"></div>TwinPilot</div><div>데모 데이터는 부산진구 일대 좌표에 만든 합성(가상) 도시입니다</div></div>
+</body></html>

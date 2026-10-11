@@ -19,3 +19,4 @@ eval-report.*
 infra/micro/.env
 infra/micro/secrets/
 infra/micro/*.tar.gz
+tools/demo-video/take/

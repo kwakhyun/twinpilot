@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>intro</title>
+<style>
+  :root { --bg:#0b1118; --fg:#e8eef5; --muted:#8fa3b8; --accent:#3b8cff; --warm:#ff8a3d; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { width:1600px; height:900px; overflow:hidden; background:var(--bg); color:var(--fg);
+    font-family:"Pretendard", sans-serif; }
+  .grid { position:absolute; inset:-200px; background-image:
+      linear-gradient(rgba(59,140,255,.10) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59,140,255,.10) 1px, transparent 1px);
+    background-size:60px 60px; transform:perspective(900px) rotateX(58deg) translateY(120px);
+    animation: drift 9s linear forwards, gridin 1.2s ease-out both; }
+  @keyframes drift { to { background-position: 0 240px; } }
+  @keyframes gridin { from { opacity:0 } to { opacity:1 } }
+  .city { position:absolute; left:50%; bottom:120px; width:1100px; height:300px; transform:translateX(-50%);
+    display:flex; align-items:flex-end; gap:10px; justify-content:center; }
+  .b { width:34px; border-radius:3px 3px 0 0; transform-origin:bottom; transform:scaleY(0);
+    background:linear-gradient(180deg, var(--warm), #b8451a); opacity:.85;
+    animation: rise .9s cubic-bezier(.2,.9,.25,1) forwards; }
+  .b.cool { background:linear-gradient(180deg, #5aa2ff, #1d4f9c); }
+  @keyframes rise { to { transform:scaleY(1); } }
+  .ring { position:absolute; border:2px solid rgba(255,255,255,.55); border-radius:50%;
+    left:50%; top:66%; width:40px; height:40px; transform:translate(-50%,-50%) scale(0); opacity:0;
+    animation: ping 1.8s ease-out 2.4s forwards; }
+  .ring.r2 { animation-delay:2.8s; left:38%; } .ring.r3 { animation-delay:3.2s; left:63%; }
+  @keyframes ping { 0% { transform:translate(-50%,-50%) scale(0); opacity:.9 } 100% { transform:translate(-50%,-50%) scale(9); opacity:0 } }
+  .veil { position:absolute; inset:0; background:radial-gradient(ellipse at 50% 38%, rgba(11,17,24,.25), rgba(11,17,24,.92) 70%); }
+  .title { position:absolute; top:190px; width:100%; text-align:center; }
+  .logo { display:inline-flex; align-items:center; gap:18px; opacity:0; transform:translateY(24px);
+    animation: up .9s cubic-bezier(.2,.9,.25,1) 1.0s forwards; }
+  .mark { width:54px; height:54px; transform:rotate(45deg); background:var(--accent); border-radius:8px;
+    box-shadow:0 0 40px rgba(59,140,255,.6); }
+  .name { font-size:88px; font-weight:800; letter-spacing:-1px; }
+  .tag { margin-top:22px; font-size:34px; font-weight:600; color:var(--fg); opacity:0;
+    animation: up .8s ease-out 1.7s forwards; transform:translateY(16px); }
+  .sub { margin-top:14px; font-size:24px; color:var(--muted); opacity:0; animation: up .8s ease-out 2.2s forwards;
+    transform:translateY(12px); }
+  .chips { margin-top:40px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  .chip { padding:9px 18px; border:1px solid rgba(143,163,184,.45); border-radius:999px; font-size:19px;
+    color:#cfe0f3; background:rgba(22,33,44,.7); opacity:0; transform:translateY(10px);
+    animation: up .5s ease-out forwards; }
+  @keyframes up { to { opacity:1; transform:none; } }
+  .scan { position:absolute; left:0; right:0; height:2px; top:0; background:linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity:.0; animation: scan 2.2s ease-in-out .3s forwards; }
+  @keyframes scan { 0% { top:10%; opacity:0 } 20% { opacity:.9 } 100% { top:92%; opacity:0 } }
+</style></head>
+<body>
+  <div class="grid"></div>
+  <div class="city" id="city"></div>
+  <div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>
+  <div class="veil"></div>
+  <div class="scan"></div>
+  <div class="title">
+    <div class="logo"><div class="mark"></div><div class="name">TwinPilot</div></div>
+    <div class="tag">자연어로 묻고 3D로 답하는 디지털트윈 의사결정 플랫폼</div>
+    <div class="sub">소방·응급 안전 커버리지 분석 팩</div>
+    <div class="chips" id="chips"></div>
+  </div>
+<script>
+  const city = document.getElementById("city");
+  const n = 26;
+  for (let i = 0; i < n; i++) {
+    const b = document.createElement("div");
+    const h = 60 + Math.round(Math.abs(Math.sin(i * 1.7) * 200) + (i % 5) * 12);
+    b.className = "b" + (i % 4 === 1 ? " cool" : "");
+    b.style.height = h + "px";
+    b.style.animationDelay = (0.15 + i * 0.045) + "s";
+    city.appendChild(b);
+  }
+  const chips = ["CesiumJS 3D", "Spring Boot 4 · PostGIS", "LangGraph 에이전트", "MCP 도구 서버", "Keycloak OIDC", "Kubernetes · NCP"];
+  chips.forEach((t, i) => {
+    const c = document.createElement("div");
+    c.className = "chip"; c.textContent = t; c.style.animationDelay = (2.8 + i * 0.18) + "s";
+    document.getElementById("chips").appendChild(c);
+  });
+</script>
+</body></html>
