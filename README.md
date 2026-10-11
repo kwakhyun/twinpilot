@@ -54,6 +54,11 @@ flowchart LR
 
 ## 빠른 시작 (Docker Compose)
 
+**실행 파일 더블클릭**: Windows는 `start-demo.cmd`, macOS는 `start-demo.command`, Linux는 `./start-demo.sh`.
+Docker 설치·실행 확인, 포트 확인, 빌드·실행, 브라우저 열기까지 한 번에 한다(처음 10~20분). 같은 파일에 `stop`·`reset`·`logs`를 붙여 쓴다.
+
+직접 실행할 때:
+
 ```bash
 docker compose -f infra/docker-compose.yml up -d --build --wait
 open http://localhost:8088          # 데모 계정 viewer / analyst / planner / admin, 비밀번호 twinpilot-demo
