@@ -38,7 +38,7 @@
 
 브라우저 콘솔 오류 0건, CSP 위반 0건, axe 위반 0건(모든 심각도).
 
-시연 영상 녹화 중 찾아 고친 결함: docker compose에서 Keycloak 컨테이너를 중지 후 다시 시작하면 tmpfs()가 root 소유(755)로 바뀌어 테마 정적 파일의 gzip 캐시를 만들지 못하고, 브라우저(압축 요청)에 404를 돌려 로그인 화면에 스타일이 빠짐 → tmpfs에 소유자(uid 1000)·권한을 지정. 새로 만든 컨테이너에서는 재현되지 않아 E2E가 놓쳤다(Kubernetes는 emptyDir라 해당 없음).
+시연 영상 녹화 중 찾아 고친 결함: docker compose에서 Keycloak 컨테이너를 중지 후 다시 시작하면 tmpfs(`data/tmp`)가 root 소유(755)로 바뀌어 테마 정적 파일의 gzip 캐시를 만들지 못하고, 브라우저(압축 요청)에 404를 돌려 로그인 화면에 스타일이 빠짐 → tmpfs에 소유자(uid 1000)·권한을 지정. 새로 만든 컨테이너에서는 재현되지 않아 E2E가 놓쳤다(Kubernetes는 emptyDir라 해당 없음).
 
 E2E로 찾아 고친 결함(v0.2): Cesium Viewer의 Knockout `eval`이 CSP에 막힘 → CesiumWidget으로 전환, nginx가 포트를 뺀 Host를 넘겨
 Keycloak 토큰 엔드포인트 주소가 틀어짐 → `$http_host`, 대화 기록 API가 에이전트 서비스 계정 비활성으로 500 → 서비스 계정 활성화,
