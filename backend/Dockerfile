@@ -15,7 +15,7 @@ ARG MAVEN_ARGS="-B -q"
 RUN mvn ${MAVEN_ARGS} package -DskipTests \
  && java -Djarmode=tools -jar target/twin-api-*.jar extract --layers --launcher --destination /extracted
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 # 베이스 이미지의 pebble(서비스 관리자, Go 바이너리)은 JRE 실행에 쓰지 않으므로 지운다(취약점 검사 대상 축소).
 RUN groupadd -r app && useradd -r -g app -u 10001 app && mkdir -p /data/storage && chown app:app /data/storage \
  && rm -f /usr/bin/pebble
