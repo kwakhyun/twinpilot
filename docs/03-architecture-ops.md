@@ -200,7 +200,7 @@ sequenceDiagram
 | AI | MCP 도구는 모두 읽기 전용(쓰기는 사용자 권한으로 twin-api가 판단), 도구 인자 스키마 검증, 도구 호출 한도, 시스템 프롬프트 비공개(평가 사례) |
 | 컨테이너 | 비루트, 읽기 전용 루트 파일시스템(Keycloak 최적화 이미지·PostGIS 포함), `drop ALL`, 권한 상승 금지, seccomp RuntimeDefault. 런타임 이미지에서 pip·gosu 등 불필요 바이너리 제거. 수정 가능한 HIGH·CRITICAL: twin-api·mcp-server·ai-agent·keycloak 0, PostGIS·frontend는 남은 항목이 모두 Alpine 패키지라 CI의 `apk upgrade`로 해소(이 환경에서는 저장소 차단으로 미확인) |
 | 클러스터 | Pod Security `restricted` 강제(PostGIS 포함 모든 워크로드), 네임스페이스 기본 차단 NetworkPolicy, ServiceAccount 토큰 미마운트 |
-| 공급망 | 해시 고정 Python 의존성(`requirements.lock`), npm `package-lock.json`, CI에서 Trivy(이미지)·pip-audit·npm audit, Dependabot |
+| 공급망 | 해시 고정 Python 의존성(`requirements.lock`), npm `package-lock.json`, CI에서 Trivy(이미지)·pip-audit·npm audit |
 | 비밀 | Secret으로만 주입. `secrets.env`·`terraform.tfvars`는 버전 관리 제외. 교체 절차는 [runbooks/secrets-rotation.md](runbooks/secrets-rotation.md) |
 
 ## 9. Kubernetes 구성

@@ -18,7 +18,7 @@ v0.2는 여러 레플리카로 운영하는 것을 전제로 다음을 더했다
 | 성능·복원력 | 분석 결과 캐시(동시 요청 합치기, 레플리카 간 무효화), 과부하 시 503 + Retry-After, LLM 장애 시 규칙 기반 전환, graceful shutdown |
 | 관측성 | JSON 로그, OpenTelemetry 분산 추적, Prometheus 메트릭·경보 15개, Grafana 대시보드 |
 | 운영 | Kubernetes(PSA restricted, NetworkPolicy, HPA·PDB), 일일 백업·복구 Job, kube-prometheus-stack 연동, Argo CD, 런북 |
-| 공급망 | 해시 고정 의존성, 비루트·읽기 전용 이미지, CI의 Trivy·pip-audit·npm audit, Dependabot |
+| 공급망 | 해시 고정 의존성, 비루트·읽기 전용 이미지, CI의 Trivy·pip-audit·npm audit |
 | 품질 | 백엔드 41·프론트 13·MCP 12·에이전트 43 테스트, 역할별 E2E 12개(axe·CSP), k6 부하 테스트, 코파일럿 평가 하네스 |
 
 ## 구성
