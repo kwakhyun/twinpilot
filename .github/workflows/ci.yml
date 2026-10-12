@@ -64,7 +64,7 @@ jobs:
         working-directory: ${{ matrix.service }}
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       # 운영 이미지와 같은 해시 고정 의존성으로 설치한 뒤 테스트 도구만 더한다.
