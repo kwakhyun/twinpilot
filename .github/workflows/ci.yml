@@ -122,14 +122,14 @@ jobs:
           npx playwright install --with-deps chromium
           BASE=http://localhost:8088 OUT=./screenshots node suite.mjs
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-screenshots
           path: e2e/screenshots
       - if: failure()
         run: docker compose -f infra/docker-compose.yml logs --no-color > compose.log
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: compose-logs
           path: compose.log
