@@ -4,7 +4,7 @@
 # - 항상 postgres 사용자(uid·gid 70)로 실행하므로 루트에서 권한을 낮출 때만 쓰는 gosu를 지운다.
 #   (Kubernetes: runAsUser 70, docker compose: 이미지 USER)
 # - 베이스 이후 나온 보안 패치를 반영한다(CI 기본값). 패키지 저장소에 닿지 않는 환경에서는 APK_UPGRADE=false.
-FROM postgis/postgis:16-3.5-alpine
+FROM postgis/postgis:17-3.5-alpine
 ARG APK_UPGRADE=true
 USER root
 RUN --mount=type=secret,id=extra_ca,required=false \
