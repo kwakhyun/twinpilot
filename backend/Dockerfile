@@ -5,7 +5,7 @@
 #   docker build --build-context m2repo=$HOME/.m2/repository ...
 FROM scratch AS m2repo
 
-FROM maven:3.9-eclipse-temurin-21 AS build
+FROM maven:3.9-eclipse-temurin-26 AS build
 WORKDIR /src
 COPY --from=m2repo . /root/.m2/repository/
 COPY pom.xml .
