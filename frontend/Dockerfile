@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # frontend: Vite 빌드 → nginx 정적 서빙 + /api·/agent·/auth 리버스 프록시
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 # TLS 검사 프록시 뒤에서 빌드할 때만 CA 번들을 주입한다: --secret id=extra_ca,src=ca.pem
