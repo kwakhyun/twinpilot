@@ -11,8 +11,8 @@
   .node b { display:block; font-size:22px; font-weight:700; }
   .node span { display:block; margin-top:6px; font-size:15px; color:var(--muted); }
   .node.hl { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
-  svg { position:absolute; inset:0; overflow:visible; }
-  svg path { stroke:#4f6b88; stroke-width:2; fill:none; stroke-dasharray:6 6; opacity:0; animation: fadein .4s ease-out forwards; }
+  .flow svg { position:absolute; inset:0; overflow:visible; }
+  .flow svg path { stroke:#4f6b88; stroke-width:2; fill:none; stroke-dasharray:6 6; opacity:0; animation: fadein .4s ease-out forwards; }
   .stats { position:absolute; left:90px; right:90px; top:510px; display:grid; grid-template-columns:repeat(4,1fr); gap:18px; }
   .stat { padding:20px 22px; border-radius:12px; background:var(--card); border:1px solid var(--line); opacity:0;
     transform:translateY(14px); animation: up .55s ease-out forwards; }
@@ -21,7 +21,7 @@
   .foot { position:absolute; left:90px; right:90px; bottom:56px; display:flex; justify-content:space-between; align-items:center;
     font-size:18px; color:var(--muted); opacity:0; animation: fadein .8s ease-out 4.2s forwards; }
   .foot .brand { display:flex; align-items:center; gap:12px; color:var(--fg); font-size:26px; font-weight:800; }
-  .mark { width:24px; height:24px; transform:rotate(45deg); background:var(--accent); border-radius:4px; }
+  .mark { width:30px; height:30px; }
   @keyframes up { to { opacity:1; transform:none; } }
   @keyframes fadein { to { opacity:1; } }
 </style></head>
@@ -50,5 +50,5 @@
     <div class="stat" style="animation-delay:2.7s"><div class="v">200 req/s</div><div class="k">혼합 부하 오류 0 · p95 20ms<br>(단일 호스트 측정)</div></div>
     <div class="stat" style="animation-delay:2.95s"><div class="v">kill -9</div><div class="k">작업 노드 강제 종료 후<br>다른 레플리카가 이어받아 완료</div></div>
   </div>
-  <div class="foot"><div class="brand"><div class="mark"></div>TwinPilot</div><div>데모 데이터는 부산진구 일대 좌표에 만든 합성(가상) 도시입니다</div></div>
+  <div class="foot"><div class="brand"><svg class="mark" viewBox="9.2 9.2 45.6 45.6" aria-hidden="true"><path d="M49.4 11.2L11.2 26.5L29 31.6Z" fill="#3987e5" stroke="#3987e5" stroke-width="2.6" stroke-linejoin="round"/><path d="M52.8 14.6L37.5 52.8L32.4 35Z" fill="none" stroke="#ff9a52" stroke-width="3.2" stroke-linejoin="round"/></svg>TwinPilot</div><div>데모 데이터는 부산진구 일대 좌표에 만든 합성(가상) 도시입니다</div></div>
 </body></html>

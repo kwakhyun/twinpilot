@@ -27,7 +27,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import unquote, urlencode
+from urllib.parse import quote, unquote, urlencode
 
 import jwt
 import uvicorn
@@ -297,6 +297,15 @@ async def certs(request: Request) -> Response:
     return JSONResponse(JWKS, headers={"Cache-Control": "max-age=300"})
 
 
+# TwinPilot 마크(frontend/public/favicon.svg와 같은 도형)
+LOGO_PATHS = ('<path d="M49.4 11.2L11.2 26.5L29 31.6Z" fill="#3987e5" stroke="#3987e5" stroke-width="2.6" '
+              'stroke-linejoin="round"/><path d="M52.8 14.6L37.5 52.8L32.4 35Z" fill="none" stroke="#ff9a52" '
+              'stroke-width="3.2" stroke-linejoin="round"/>')
+LOGO_SVG = f'<svg class="logo" width="28" height="28" viewBox="9.2 9.2 45.6 45.6" aria-hidden="true">{LOGO_PATHS}</svg>'
+FAVICON = "data:image/svg+xml," + quote(
+    f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="15" '
+    f'fill="#121820"/>{LOGO_PATHS}</svg>')
+
 LOGIN_CSP = ("default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; "
              "frame-ancestors 'none'; base-uri 'none'")
 
@@ -304,13 +313,14 @@ LOGIN_CSP = ("default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data
 def _page(title: str, body: str, status: int = 200) -> HTMLResponse:
     doc = f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{html.escape(title)} · TwinPilot</title>
+<link rel="icon" href="{FAVICON}">
 <style>
 :root{{color-scheme:light dark;--bg:#0f1720;--card:#16212c;--fg:#e6edf3;--muted:#9fb0c0;--line:#2a3a4a;--accent:#2f7de1;--err:#ff8a80}}
 @media (prefers-color-scheme: light){{:root{{--bg:#eef2f6;--card:#fff;--fg:#14202b;--muted:#4c5b69;--line:#cfd8e1;--accent:#1f63c1;--err:#b3261e}}}}
 *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);
 font:15px/1.5 system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;padding:16px}}
 main{{width:100%;max-width:360px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px}}
-h1{{font-size:20px;margin:0 0 4px}}p{{margin:0 0 16px;color:var(--muted)}}label{{display:block;margin:12px 0 4px;font-weight:600}}
+h1{{font-size:20px;margin:0 0 4px;display:flex;align-items:center;gap:10px}}p{{margin:0 0 16px;color:var(--muted)}}label{{display:block;margin:12px 0 4px;font-weight:600}}
 input{{width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:transparent;color:inherit;font:inherit}}
 button{{margin-top:20px;width:100%;padding:11px;border:0;border-radius:8px;background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer}}
 .err{{color:var(--err);margin:12px 0 0}}.hint{{margin-top:16px;font-size:13px}}
@@ -323,7 +333,7 @@ button{{margin-top:20px;width:100%;padding:11px;border:0;border-radius:8px;backg
 def _login_form(auth_id: str, error: str = "", username: str = "", status: int = 200) -> HTMLResponse:
     err = f'<p class="err" role="alert">{html.escape(error)}</p>' if error else ""
     hint = f'<p class="hint">{html.escape(LOGIN_HINT)}</p>' if LOGIN_HINT else ""
-    body = f"""<h1>TwinPilot 로그인</h1><p>디지털트윈 안전 코파일럿 데모</p>
+    body = f"""<h1>{LOGO_SVG}TwinPilot 로그인</h1><p>디지털트윈 안전 코파일럿 데모</p>
 <form id="kc-form-login" method="post" action="{PUBLIC_URL}{OIDC}/auth?auth_id={html.escape(auth_id)}">
 <input type="hidden" name="auth_id" value="{html.escape(auth_id)}">
 <label for="username">계정</label><input id="username" name="username" autocomplete="username" required value="{html.escape(username)}" autofocus>

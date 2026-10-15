@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { api } from "../api/client";
 import { loadConfig } from "../config";
+import { Logo } from "../ui/Logo";
 import { hasRole, initSession, login, useSession } from "./session";
 
 /** 설정 로드 → 로그인(필요하면 IdP로 이동) → 서버에서 내 역할 확인 후 앱을 그린다. */
@@ -28,9 +29,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (status === "loading") {
     return (
       <div className="gate" role="status">
-        <span className="logo" aria-hidden>
-          ◆
-        </span>{" "}
+        <Logo size={40} />
         TwinPilot 로그인 확인 중…
       </div>
     );

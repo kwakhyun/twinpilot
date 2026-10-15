@@ -75,7 +75,8 @@ select {
 }
 
 .logo {
-  color: var(--accent);
+  flex: none;
+  align-self: center;
 }
 
 .main {

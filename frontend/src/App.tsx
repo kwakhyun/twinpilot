@@ -12,6 +12,7 @@ import { ModelPanel } from "./panels/ModelPanel";
 import { SensorStrip } from "./panels/SensorStrip";
 import { useTwin, type TabKey } from "./state/store";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
+import { Logo } from "./ui/Logo";
 import { Toasts } from "./ui/Toasts";
 
 const ROLE_LABEL: Record<string, string> = { ADMIN: "관리자", PLANNER: "계획", ANALYST: "분석", VIEWER: "조회" };
@@ -33,9 +34,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <span className="logo" aria-hidden>
-            ◆
-          </span>
+          <Logo />
           <h1 className="brand-title">TwinPilot</h1>
           <span className="muted">디지털트윈 안전 코파일럿 · 소방·응급 커버리지 팩</span>
         </div>

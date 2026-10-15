@@ -1,3 +1,5 @@
+<img src="frontend/public/favicon.svg" width="72" height="72" alt="TwinPilot 아이콘">
+
 # TwinPilot — 디지털트윈 안전 코파일럿 (v0.2)
 
 > 자연어로 묻고 3D로 답하는 디지털트윈 의사결정 플랫폼.

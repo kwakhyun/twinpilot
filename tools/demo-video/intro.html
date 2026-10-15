@@ -28,8 +28,7 @@
   .title { position:absolute; top:190px; width:100%; text-align:center; }
   .logo { display:inline-flex; align-items:center; gap:18px; opacity:0; transform:translateY(24px);
     animation: up .9s cubic-bezier(.2,.9,.25,1) 1.0s forwards; }
-  .mark { width:54px; height:54px; transform:rotate(45deg); background:var(--accent); border-radius:8px;
-    box-shadow:0 0 40px rgba(59,140,255,.6); }
+  .mark { width:64px; height:64px; filter:drop-shadow(0 0 18px rgba(59,140,255,.55)); }
   .name { font-size:88px; font-weight:800; letter-spacing:-1px; }
   .tag { margin-top:22px; font-size:34px; font-weight:600; color:var(--fg); opacity:0;
     animation: up .8s ease-out 1.7s forwards; transform:translateY(16px); }
@@ -51,7 +50,7 @@
   <div class="veil"></div>
   <div class="scan"></div>
   <div class="title">
-    <div class="logo"><div class="mark"></div><div class="name">TwinPilot</div></div>
+    <div class="logo"><svg class="mark" viewBox="9.2 9.2 45.6 45.6" aria-hidden="true"><path d="M49.4 11.2L11.2 26.5L29 31.6Z" fill="#3987e5" stroke="#3987e5" stroke-width="2.6" stroke-linejoin="round"/><path d="M52.8 14.6L37.5 52.8L32.4 35Z" fill="none" stroke="#ff9a52" stroke-width="3.2" stroke-linejoin="round"/></svg><div class="name">TwinPilot</div></div>
     <div class="tag">자연어로 묻고 3D로 답하는 디지털트윈 의사결정 플랫폼</div>
     <div class="sub">소방·응급 안전 커버리지 분석 팩</div>
     <div class="chips" id="chips"></div>
